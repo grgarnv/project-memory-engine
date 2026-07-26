@@ -30,53 +30,38 @@ entity extraction doesn't need a statement to have been built from a
 sentence, it just needs the sentence.
 
 `MemoryCompiler.compile()` in `memory_engine/pipeline.py` runs every stage
-above in order and returns all of it (observations, segments, statements,
-claims, facts, entities) in one dict. There is no stage that runs but
+above in order and returns a typed `CompiledArtifact` instance. There is no stage that runs but
 isn't called from `compile()` - if it's in the file, it's in the pipeline.
+
+## Compiler-Linker Decoupling
+
+The engine follows a strict Compiler/Linker architecture:
+
+- **Compiler (`MemoryCompiler`)**: Pure, stateless single-artifact knowledge extractor. Consumes one `Artifact` and emits a typed `CompiledArtifact` object.
+- **Linker (`MemoryPatchLinker`)**: Stateful cross-artifact knowledge linker. Consumes `CompiledArtifact` and `MemoryReader`, emitting an append-only `MemoryDelta`.
+
+## Core Architectural Invariants
+
+1. **Deterministic Hashing & Identity**: Artifacts, Entities, and Persisted Facts use stable content-addressed IDs (`deterministic_id`). Transient compiler nodes use local ordinal identifiers (`obs:0`, `seg:1`).
+2. **Hierarchical Document Preservation**: `Observation` and `Segment` record section headers (`section_header`) and parent IDs (`parent_id`) so structural document context survives compilation.
+3. **Ontology Registry**: Managed by a versioned `OntologyRegistry` (`OntologyVersion.V1_0`). The compiler queries the registry for predicate and entity type normalization.
+4. **Typed Compiler Output Contract**: `MemoryCompiler.compile()` returns a `CompiledArtifact` object, providing full dictionary compatibility (`__getitem__`, `to_dict()`, `to_json()`) alongside typed properties.
 
 ## Claim vs. Fact
 
-These are deliberately not the same thing:
+These are deliberately separate compiler IR representations:
 
-- **Claim** - anything the artifact asserts. Every `Statement` becomes
-  exactly one `Claim`. May be wrong, vague, or hedged - that's fine, it's
-  just a claim. Confidence is scored by a placeholder heuristic (hedge/modal
-  word match - see `pipeline._score_confidence`).
-- **Fact** - a `Claim` that `FactPass` (`RuleBasedFactExtractor` in
-  `extractors.py`) has accepted as structured knowledge. Promoted only if
-  both hold:
-  - confidence >= `FACT_CONFIDENCE_THRESHOLD` (concrete enough)
-  - predicate maps to a known ontology `Predicate` (structured enough)
-
-  Otherwise the claim stays a Claim only - it is not dropped, just not
-  promoted. Each `Fact` keeps `source_claim` pointing back to the `Claim`
-  it came from, which itself keeps `supporting_statements` pointing back
-  to the originating `Statement`(s) - a full provenance chain.
-
-See `tests/golden/pr_003_hedged/` for a golden case that proves a hedged
-claim is correctly *not* promoted.
+- **Claim** - Epistemic IR: anything the artifact asserts, scored with a confidence heuristic.
+- **Fact** - Normalized Ontology IR: a `Claim` that `FactPass` has accepted as structured knowledge (confidence >= `FACT_CONFIDENCE_THRESHOLD` and predicate normalized by `OntologyRegistry`).
 
 ## Modules
 
-- `memory_engine/ir.py` - every data type the pipeline passes around
-- `memory_engine/ontology.py` - the fixed vocabulary (`EntityType`, `Predicate`)
-  that free text gets normalized into
-- `memory_engine/extractors.py` - pluggable Statement/Fact extraction logic
-  (currently rule-based; `LLMStatementExtractor` is a documented stub for
-  Phase 1)
-- `memory_engine/pipeline.py` - the stage functions plus `MemoryCompiler`
+- `memory_engine/ir.py` - IR data types (`Artifact`, `Observation`, `Segment`, `Statement`, `Entity`, `Claim`, `Fact`, `Relation`, `CompiledArtifact`, `deterministic_id`)
+- `memory_engine/ontology.py` - fixed vocabulary (`EntityType`, `Predicate`), `OntologyVersion`, and `OntologyRegistry`
+- `memory_engine/extractors.py` - pluggable Statement/Fact extraction logic and entity resolution
+- `memory_engine/pipeline.py` - stage functions plus `MemoryCompiler`
+- `memory_engine/patch.py` - Phase 2 MemoryPatch contract specifications (`MemoryReader`, `MemoryDelta`, `MemoryPatchLinker`)
+- `docs/rfcs/` - formal Architecture RFCs (RFC 001, RFC 002)
 
-## What's deliberately not here yet
+See `docs/roadmap.md` for current phase status and progress.
 
-- **Relation** - an Entity-to-Entity edge (e.g. API Gateway --uses--> JWT
-  validation). This needs entity resolution first: nothing currently links
-  a Fact's subject/object text to the separately-extracted Entity list.
-  That linking step, not the `Relation` dataclass itself, is the real next
-  design question - see `docs/roadmap.md`.
-- **Project Memory / storage** - persisting facts across multiple artifacts
-  over time. Nothing here yet; this is Phase 2.
-- **MemoryPatch** - the diff you'd apply to long-term memory when new facts
-  arrive. The dataclass exists in `ir.py`; nothing produces one yet.
-- **Explanation Engine / Compliance Engine** - Phase 3, not started.
-
-See `docs/roadmap.md` for what's actually done vs. planned.

@@ -64,3 +64,29 @@ This document tracks all design decisions, architectural improvements, and code 
 
 - Updated [docs/roadmap.md](file:///Users/arnav/Desktop/project-memory-engine/docs/roadmap.md) marking completed Phase 1 and Phase 2 items.
 - Created `docs/changelog.md` for permanent documentation of session improvements.
+
+---
+
+## 6. Next-Generation Architecture Refactoring
+
+- **Deterministic Identity & Scoped Identity Engine**:
+  - Implemented `deterministic_id(scope, *components)` helper generating stable SHA-256 content-addressed IDs for `Artifact`, `Entity`, and persistent graph facts.
+  - Assigned deterministic local ordinal IDs (`obs:0`, `seg:1`, `stmt:2`) to transient compiler nodes.
+- **Hierarchical Document Structure Invariant**:
+  - Added `section_header` and `parent_id` fields to `Observation` and `Segment` dataclasses.
+  - Updated `observe()` and `segment()` in `pipeline.py` to record and attach section titles and parent observation IDs so structural document hierarchy survives compilation.
+- **Standalone Versioned Ontology Layer (`OntologyRegistry`)**:
+  - Introduced `OntologyVersion.V1_0` and `OntologyRegistry` class in `ontology.py`.
+  - Decoupled hardcoded extraction dictionaries so `RuleBasedStatementExtractor` and `RuleBasedFactExtractor` query `OntologyRegistry`.
+- **Compiler Output Contract (`CompiledArtifact`)**:
+  - Replaced raw dictionary outputs from `MemoryCompiler.compile()` with a typed, immutable `CompiledArtifact` dataclass.
+  - Implemented `dict` indexing (`__getitem__`), `.to_dict()`, `.to_json()`, and inspection properties (`fact_count`, `relation_count`) to preserve 100% backward compatibility with all golden tests and existing test suites.
+- **MemoryPatch Linker Contracts (`memory_engine/patch.py`)**:
+  - Defined Phase 2 MemoryPatch contract specifications: `MemoryReader` (ABC snapshot query interface), `MemoryDelta` (immutable append-only delta log), and `MemoryPatchLinker` (ABC linker interface).
+- **Architecture RFC Specifications**:
+  - Created `docs/rfcs/RFC_001_COMPILER_LINKER_ARCHITECTURE.md` (Compiler/Linker boundary, `CompiledArtifact` contract, identity system, linker invariants).
+  - Created `docs/rfcs/RFC_002_ONTOLOGY_REGISTRY_AND_EVOLUTION.md` (Ontology layer ownership, versioning schema, linker migration mapping).
+- **Test Suite Expansion**:
+  - Added `tests/test_ontology.py`, `tests/test_compiled_artifact.py`, and `tests/test_patch_contracts.py`.
+  - Re-ran pytest suite: **27 passed in 0.03s** (100% pass rate).
+

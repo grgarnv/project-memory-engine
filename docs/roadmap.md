@@ -29,14 +29,21 @@
 - [x] `LLMStatementExtractor` - implemented behind `LLMProvider` abstraction (`OpenAIProvider`, `GeminiProvider`, `GenericHTTPProvider`, `MockLLMProvider`)
 - [x] General entity recognizer (`GeneralEntityRecognizer` replacing fixed regex list)
 
-## Phase 2 - entity resolution + Relation
+## Phase 2 - entity resolution, Relation, and Next-Gen Architecture Infrastructure
 
 - [x] Link Fact subject/object text to the separately-extracted Entity list
       (`DeterministicEntityResolver` with canonical name and alias matching)
 - [x] `Relation` IR type (`Entity --predicate--> Entity`), built from
       resolved Facts + Entities via `RuleBasedRelationExtractor`
-- [ ] `MemoryPatch` production (diffing new facts against existing memory)
-- [ ] Project Memory storage layer
+- [x] Deterministic Hashing & Identity Infrastructure (`deterministic_id`)
+- [x] Hierarchical Document Structure preservation (`section_header` and `parent_id` on Observations/Segments)
+- [x] Formal `OntologyRegistry` and versioning (`OntologyVersion.V1_0`)
+- [x] Typed `CompiledArtifact` compiler output contract with backward-compatible dict access
+- [x] MemoryPatch Linker Contract specifications (`MemoryReader`, `MemoryDelta`, `MemoryPatchLinker` in `memory_engine/patch.py`)
+- [x] Architecture Specification RFCs (`RFC_001_COMPILER_LINKER_ARCHITECTURE.md`, `RFC_002_ONTOLOGY_REGISTRY_AND_EVOLUTION.md`)
+- [ ] `MemoryPatch` Linker implementation (linking `CompiledArtifact` into long-term project memory graph)
+- [ ] Persistent Project Memory storage layer
+
 
 ## Phase 3 - not started
 

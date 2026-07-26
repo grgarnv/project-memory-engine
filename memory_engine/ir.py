@@ -35,8 +35,28 @@ import uuid
 from memory_engine.ontology import Predicate
 
 
+import hashlib
+import json
+from typing import Iterator
+
+from memory_engine.ontology import Predicate, OntologyVersion
+
+
 def _uid() -> str:
     return str(uuid.uuid4())
+
+
+def deterministic_id(scope: str, *components: str) -> str:
+    """
+    Generate a stable, deterministic content-addressed hash ID.
+
+    Usage:
+        deterministic_id("artifact", artifact.type.value, artifact.content)
+        deterministic_id("entity", entity_type.value, canonical_name.lower())
+    """
+    payload = f"{scope}:" + ":".join(str(c) for c in components)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    return f"{scope}_{digest}"
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +93,8 @@ class Observation:
     type: str = "paragraph"  # header | paragraph | reason | tradeoff
     confidence: float = 1.0
     artifact_id: str = ""
+    section_header: str = ""
+    parent_id: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +117,8 @@ class Segment:
     kind: SegmentKind = SegmentKind.DESCRIPTION
     text: str = ""
     observation_id: str = ""
+    section_header: str = ""
+    parent_id: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -129,10 +153,6 @@ class Entity:
 
 # ---------------------------------------------------------------------------
 # Stage 5a: Claim - statement wrapped with a confidence score
-#
-# A Claim is something the artifact asserts. It may be wrong, vague, or
-# unstructured - that's fine, it's just a claim. Every Statement becomes
-# exactly one Claim; nothing is filtered out at this stage.
 # ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
@@ -147,11 +167,6 @@ class Claim:
 
 # ---------------------------------------------------------------------------
 # Stage 5b: Fact - a Claim the compiler has accepted as structured knowledge
-#
-# Stronger than a Claim: promoted only once FactPass has checked it's both
-# concrete (confidence above threshold) and representable (predicate maps
-# to a known ontology Predicate). Keeps a direct link back to the Claim
-# it came from, which itself points back to the originating Statement(s).
 # ---------------------------------------------------------------------------
 
 class FactType(Enum):
@@ -187,9 +202,86 @@ class Relation:
 
 
 # ---------------------------------------------------------------------------
-# Stage 6: MemoryPatch (future - not produced by the pipeline yet)
+# Compiler Output Contract: CompiledArtifact
 # ---------------------------------------------------------------------------
 
+@dataclass
+class CompiledArtifact:
+    """
+    Immutable typed container for full compiler output.
+
+    Provides dictionary compatibility (`__getitem__`, `to_dict()`) to preserve
+    backwards compatibility with existing test suites while introducing typed
+    inspection and metadata for MemoryPatch downstream.
+    """
+    artifact: Artifact
+    observations: list[Observation] = field(default_factory=list)
+    segments: list[Segment] = field(default_factory=list)
+    statements: list[Statement] = field(default_factory=list)
+    entities: list[Entity] = field(default_factory=list)
+    claims: list[Claim] = field(default_factory=list)
+    facts: list[Fact] = field(default_factory=list)
+    relations: list[Relation] = field(default_factory=list)
+    ontology_version: OntologyVersion = OntologyVersion.V1_0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __getitem__(self, item: str) -> Any:
+        if hasattr(self, item):
+            return getattr(self, item)
+        raise KeyError(f"CompiledArtifact has no attribute or key '{item}'")
+
+    def __contains__(self, item: str) -> bool:
+        return hasattr(self, item)
+
+    def keys(self) -> list[str]:
+        return [
+            "observations", "segments", "statements", "entities",
+            "claims", "facts", "relations", "artifact", "ontology_version", "metadata"
+        ]
+
+    @property
+    def fact_count(self) -> int:
+        return len(self.facts)
+
+    @property
+    def relation_count(self) -> int:
+        return len(self.relations)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_id": self.artifact.id,
+            "observations": [o.text for o in self.observations],
+            "segments": [s.text for s in self.segments],
+            "statements": [
+                {"subject": s.subject, "predicate": s.predicate, "target": s.target}
+                for s in self.statements
+            ],
+            "entities": [
+                {"canonical_name": e.canonical_name, "type": e.entity_type.value}
+                for e in self.entities
+            ],
+            "claims": [
+                {"subject": c.subject, "predicate": c.predicate, "target": c.target, "confidence": c.confidence}
+                for c in self.claims
+            ],
+            "facts": [
+                {"subject": f.subject, "predicate": f.predicate.value, "object": f.object}
+                for f in self.facts
+            ],
+            "relations": [
+                {"subject_id": r.subject_entity_id, "predicate": r.predicate.value, "object_id": r.object_entity_id}
+                for r in self.relations
+            ],
+            "ontology_version": self.ontology_version.value,
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent)
+
+
+# ---------------------------------------------------------------------------
+# Stage 6: MemoryPatch (future - contract interfaces in memory_engine/patch.py)
+# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class MemoryPatch:
@@ -197,3 +289,4 @@ class MemoryPatch:
     modified: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+

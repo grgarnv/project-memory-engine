@@ -87,3 +87,62 @@ class Predicate(Enum):
     # Miscellaneous
     DESCRIBES = "describes"
     UNKNOWN = "unknown"
+
+
+class OntologyVersion(Enum):
+    V1_0 = "1.0"
+
+
+class OntologyRegistry:
+    """
+    Centralized registry for ontology versioning, entity types, predicates, and mapping rules.
+
+    The compiler consumes the ontology from this registry rather than hardcoding taxonomy rules inside extractor passes.
+    """
+
+    def __init__(
+        self,
+        version: OntologyVersion = OntologyVersion.V1_0,
+        predicate_map: dict[str, Predicate] | None = None,
+        segment_predicate_map: dict[str, str] | None = None,
+    ):
+        self.version = version
+        self._predicate_map = predicate_map or {
+            "description": Predicate.DESCRIBES,
+            "has_reason": Predicate.HAS_REASON,
+            "has_tradeoff": Predicate.HAS_TRADEOFF,
+            "selected": Predicate.SELECTED,
+            "describes": Predicate.DESCRIBES,
+            "uses": Predicate.USES,
+            "depends_on": Predicate.DEPENDS_ON,
+        }
+        self._segment_predicate_map = segment_predicate_map or {
+            "description": "description",
+            "reason": "has_reason",
+            "tradeoff": "has_tradeoff",
+            "decision": "selected",
+            "context": "has_reason",
+            "status": "describes",
+            "consequence": "has_tradeoff",
+        }
+
+    def normalize_predicate(self, raw_predicate: str) -> Predicate:
+        """Map raw free-text predicate to formal ontology Predicate enum."""
+        return self._predicate_map.get(raw_predicate.lower(), Predicate.UNKNOWN)
+
+    def segment_kind_to_predicate(self, segment_kind_str: str) -> str:
+        """Map SegmentKind string representation to raw statement predicate."""
+        return self._segment_predicate_map.get(segment_kind_str.lower(), "unknown")
+
+    def register_predicate_mapping(self, raw_predicate: str, ontology_predicate: Predicate) -> None:
+        """Allow extending predicate mapping rules dynamically."""
+        self._predicate_map[raw_predicate.lower()] = ontology_predicate
+
+
+_DEFAULT_REGISTRY = OntologyRegistry()
+
+
+def default_ontology_registry() -> OntologyRegistry:
+    """Return default global ontology registry instance."""
+    return _DEFAULT_REGISTRY
+

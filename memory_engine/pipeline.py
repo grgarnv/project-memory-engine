@@ -30,8 +30,9 @@ from memory_engine.ir import (
     Fact,
     Claim,
     Relation,
+    CompiledArtifact,
 )
-from memory_engine.ontology import EntityType
+from memory_engine.ontology import EntityType, OntologyRegistry, default_ontology_registry
 from memory_engine.extractors import (
     StatementExtractor,
     FactExtractor,
@@ -63,6 +64,7 @@ def observe(artifact: Artifact) -> list[Observation]:
     chunks = [c.strip() for c in artifact.content.split("\n\n") if c.strip()]
 
     observations = []
+    current_header = ""
     i = 0
     while i < len(chunks):
         text = chunks[i]
@@ -75,6 +77,8 @@ def observe(artifact: Artifact) -> list[Observation]:
             lines = text.split("\n", 1)
             header_line = lines[0].lstrip("#").strip()
             body_text = lines[1].strip() if len(lines) > 1 else ""
+
+            current_header = header_line
 
             if not body_text:
                 obs_type = "header"
@@ -99,7 +103,12 @@ def observe(artifact: Artifact) -> list[Observation]:
             obs_type = "paragraph"
 
         observations.append(
-            Observation(text=text, type=obs_type, artifact_id=artifact.id)
+            Observation(
+                text=text,
+                type=obs_type,
+                artifact_id=artifact.id,
+                section_header=current_header,
+            )
         )
         i += 1
 
@@ -129,6 +138,8 @@ def segment(observations: list[Observation]) -> list[Segment]:
                     kind=kind,
                     text=clean_text,
                     observation_id=obs.id,
+                    section_header=obs.section_header,
+                    parent_id=obs.id,
                 )
             )
         elif obs.type in ("tradeoff", "consequence") or text.startswith("Trade-off:"):
@@ -139,19 +150,39 @@ def segment(observations: list[Observation]) -> list[Segment]:
                     kind=kind,
                     text=clean_text,
                     observation_id=obs.id,
+                    section_header=obs.section_header,
+                    parent_id=obs.id,
                 )
             )
         elif obs.type == "decision":
             segments.append(
-                Segment(kind=SegmentKind.DECISION, text=text, observation_id=obs.id)
+                Segment(
+                    kind=SegmentKind.DECISION,
+                    text=text,
+                    observation_id=obs.id,
+                    section_header=obs.section_header,
+                    parent_id=obs.id,
+                )
             )
         elif obs.type == "status":
             segments.append(
-                Segment(kind=SegmentKind.STATUS, text=text, observation_id=obs.id)
+                Segment(
+                    kind=SegmentKind.STATUS,
+                    text=text,
+                    observation_id=obs.id,
+                    section_header=obs.section_header,
+                    parent_id=obs.id,
+                )
             )
         else:
             segments.append(
-                Segment(kind=SegmentKind.DESCRIPTION, text=text, observation_id=obs.id)
+                Segment(
+                    kind=SegmentKind.DESCRIPTION,
+                    text=text,
+                    observation_id=obs.id,
+                    section_header=obs.section_header,
+                    parent_id=obs.id,
+                )
             )
 
     return segments
@@ -194,13 +225,6 @@ def extract_entities(
 # Stage 5a: Claim
 # ---------------------------------------------------------------------------
 
-# Placeholder confidence heuristic: hedge/modal words lower confidence,
-# their absence leaves it at full confidence. This is a keyword match, not
-# real epistemic reasoning about the sentence - it will misfire on things
-# like "could not reproduce the bug" (hedge word, not actually a hedged
-# claim) or on negation/sarcasm generally. Good enough to prove the
-# Claim -> Fact filter works; replacing it is a later-phase item, not
-# something to grow in place.
 _HEDGE_WORDS = {
     "should", "might", "may", "could", "probably",
     "likely", "appears", "seems", "possibly", "perhaps",
@@ -217,9 +241,6 @@ def _score_confidence(text: str) -> float:
 
 
 def extract_claims(statements: list[Statement]) -> list[Claim]:
-    """Every Statement becomes exactly one Claim - nothing is filtered out
-    here. A Claim is just something the artifact asserts; it may be wrong,
-    vague, or unstructured. Confidence is scored, not defaulted."""
     return [
         Claim(
             subject=s.subject,
@@ -237,9 +258,6 @@ def extract_claims(statements: list[Statement]) -> list[Claim]:
 # ---------------------------------------------------------------------------
 
 def extract_facts(claims: list[Claim], extractor: FactExtractor) -> list[Fact]:
-    """Filter Claims down to the ones concrete and structured enough to
-    promote to Facts. A Claim that isn't promoted simply isn't included
-    here - it still exists as a Claim, just not as a Fact."""
     facts = []
     for claim in claims:
         facts.extend(extractor.extract(claim))
@@ -256,7 +274,6 @@ def resolve_entities(
     claims: list[Claim] | None = None,
     resolver: EntityResolver | None = None,
 ) -> list[ResolvedFact]:
-    """Map Fact subject and object text onto extracted Entity references."""
     res = resolver or DeterministicEntityResolver()
     return res.resolve(facts, entities, claims)
 
@@ -269,7 +286,6 @@ def extract_relations(
     resolved_facts: list[ResolvedFact],
     extractor: RelationExtractor | None = None,
 ) -> list[Relation]:
-    """Construct Relation IR objects from resolved entity references."""
     ext = extractor or RuleBasedRelationExtractor()
     return ext.extract(resolved_facts)
 
@@ -288,14 +304,16 @@ class MemoryCompiler:
         entity_recognizer: EntityRecognizer | None = None,
         entity_resolver: EntityResolver | None = None,
         relation_extractor: RelationExtractor | None = None,
+        ontology_registry: OntologyRegistry | None = None,
     ):
-        self.statement_extractor = statement_extractor or RuleBasedStatementExtractor()
-        self.fact_extractor = fact_extractor or RuleBasedFactExtractor()
+        self.ontology_registry = ontology_registry or default_ontology_registry()
+        self.statement_extractor = statement_extractor or RuleBasedStatementExtractor(registry=self.ontology_registry)
+        self.fact_extractor = fact_extractor or RuleBasedFactExtractor(registry=self.ontology_registry)
         self.entity_recognizer = entity_recognizer or GeneralEntityRecognizer()
         self.entity_resolver = entity_resolver or DeterministicEntityResolver()
         self.relation_extractor = relation_extractor or RuleBasedRelationExtractor()
 
-    def compile(self, artifact: Artifact) -> dict:
+    def compile(self, artifact: Artifact) -> CompiledArtifact:
         observations = observe(artifact)
         segments = segment(observations)
         statements = extract_statements(segments, self.statement_extractor)
@@ -305,13 +323,16 @@ class MemoryCompiler:
         resolved_facts = resolve_entities(facts, entities, claims, self.entity_resolver)
         relations = extract_relations(resolved_facts, self.relation_extractor)
 
-        return {
-            "observations": observations,
-            "segments": segments,
-            "statements": statements,
-            "entities": entities,
-            "facts": facts,
-            "claims": claims,
-            "relations": relations,
-        }
+        return CompiledArtifact(
+            artifact=artifact,
+            observations=observations,
+            segments=segments,
+            statements=statements,
+            entities=entities,
+            claims=claims,
+            facts=facts,
+            relations=relations,
+            ontology_version=self.ontology_registry.version,
+        )
+
 

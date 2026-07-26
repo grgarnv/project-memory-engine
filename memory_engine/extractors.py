@@ -16,7 +16,7 @@ import re
 from abc import ABC, abstractmethod
 
 from memory_engine.ir import Segment, SegmentKind, Statement, Claim, Fact, FactType, Entity, Relation
-from memory_engine.ontology import Predicate, EntityType
+from memory_engine.ontology import Predicate, EntityType, OntologyRegistry, default_ontology_registry
 
 CURRENT_CHANGE = "Current Change"
 
@@ -63,8 +63,11 @@ _PREDICATE_MAP = {
 class RuleBasedStatementExtractor(StatementExtractor):
     """Deterministic segment-kind -> predicate mapping. No ML involved."""
 
+    def __init__(self, registry: OntologyRegistry | None = None):
+        self.registry = registry or default_ontology_registry()
+
     def extract(self, segment: Segment) -> list[Statement]:
-        predicate = _SEGMENT_PREDICATES.get(segment.kind, "unknown")
+        predicate = self.registry.segment_kind_to_predicate(segment.kind.value)
         return [
             Statement(
                 subject=CURRENT_CHANGE,
@@ -84,8 +87,11 @@ class RuleBasedFactExtractor(FactExtractor):
     Otherwise the claim remains a Claim only - this method returns [].
     """
 
+    def __init__(self, registry: OntologyRegistry | None = None):
+        self.registry = registry or default_ontology_registry()
+
     def extract(self, claim: Claim) -> list[Fact]:
-        predicate = _PREDICATE_MAP.get(claim.predicate, Predicate.UNKNOWN)
+        predicate = self.registry.normalize_predicate(claim.predicate)
 
         if claim.confidence < FACT_CONFIDENCE_THRESHOLD:
             return []
@@ -103,6 +109,7 @@ class RuleBasedFactExtractor(FactExtractor):
                 supporting_statements=list(claim.supporting_statements),
             )
         ]
+
 
 
 # ---------------------------------------------------------------------------
