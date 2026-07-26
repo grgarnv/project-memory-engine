@@ -18,11 +18,15 @@ class MockMemoryReader(MemoryReader):
     def find_entity_by_canonical_name(self, canonical_name: str) -> str | None:
         return self.entities.get(canonical_name.lower())
 
-    def get_active_facts_for_entity(self, entity_id: str) -> list[PersistedFact]:
+    def get_persisted_fact_by_id(self, fact_id: str) -> PersistedFact | None:
+        return None
+
+    def find_existing_fact(self, subject_ref: str, predicate: Predicate, object_ref: str) -> PersistedFact | None:
+        return None
+
+    def get_active_facts_for_subject(self, subject_ref: str) -> list[PersistedFact]:
         return []
 
-    def fact_exists(self, subject_id: str, predicate: Predicate, object_id_or_literal: str) -> bool:
-        return False
 
 
 class MockMemoryPatchLinker(MemoryPatchLinker):

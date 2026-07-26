@@ -39,10 +39,14 @@
 - [x] Hierarchical Document Structure preservation (`section_header` and `parent_id` on Observations/Segments)
 - [x] Formal `OntologyRegistry` and versioning (`OntologyVersion.V1_0`)
 - [x] Typed `CompiledArtifact` compiler output contract with backward-compatible dict access
-- [x] MemoryPatch Linker Contract specifications (`MemoryReader`, `MemoryDelta`, `MemoryPatchLinker` in `memory_engine/patch.py`)
-- [x] Architecture Specification RFCs (`RFC_001_COMPILER_LINKER_ARCHITECTURE.md`, `RFC_002_ONTOLOGY_REGISTRY_AND_EVOLUTION.md`)
-- [ ] `MemoryPatch` Linker implementation (linking `CompiledArtifact` into long-term project memory graph)
-- [ ] Persistent Project Memory storage layer
+- [x] MemoryPatch Linker implementation (`ThreePassMemoryPatchLinker`: `BindingPass`, `PersistencePass`, `AnalysisPipeline`)
+- [x] Evidence Model (`EvidenceRecord`: One PersistedFact -> Many EvidenceRecords)
+- [x] `ArtifactRef` symbol resolution preserving ontology separation between documents and domain entities
+- [x] Composable `AnalysisRule` pipeline (`ExplicitDeprecationRule`, `SingleOccupancyDecisionRule`, `DirectNegationConflictRule`)
+- [x] In-Memory Persistent Store reference implementation (`InMemoryProjectMemory`)
+- [x] `RFC_003_PERSISTENT_IDENTITY_EVIDENCE_AND_MEMORY.md` with explicit Non-Goals section
+- [ ] Persistent Disk Storage Engine (SQLite / Parquet format persistence)
+
 
 
 ## Phase 3 - not started

@@ -38,14 +38,19 @@ isn't called from `compile()` - if it's in the file, it's in the pipeline.
 The engine follows a strict Compiler/Linker architecture:
 
 - **Compiler (`MemoryCompiler`)**: Pure, stateless single-artifact knowledge extractor. Consumes one `Artifact` and emits a typed `CompiledArtifact` object.
-- **Linker (`MemoryPatchLinker`)**: Stateful cross-artifact knowledge linker. Consumes `CompiledArtifact` and `MemoryReader`, emitting an append-only `MemoryDelta`.
+- **Linker (`ThreePassMemoryPatchLinker`)**: Stateful cross-artifact knowledge linker executing three deterministic internal passes:
+  - **Pass 1 (`BindingPass`)**: Binds local entities to persistent global IDs; resolves `$ARTIFACT_SELF` / `CURRENT_CHANGE` to `ArtifactRef(artifact_id)`.
+  - **Pass 2 (`PersistencePass`)**: Promotes compiler facts to content-addressed `PersistedFact` nodes ($O(1)$ deduplication) and accumulates `EvidenceRecord` entries.
+  - **Pass 3 (`AnalysisPipeline`)**: Runs an ordered sequence of deterministic `AnalysisRule` plugins (`ExplicitDeprecationRule`, `SingleOccupancyDecisionRule`, `DirectNegationConflictRule`).
 
 ## Core Architectural Invariants
 
 1. **Deterministic Hashing & Identity**: Artifacts, Entities, and Persisted Facts use stable content-addressed IDs (`deterministic_id`). Transient compiler nodes use local ordinal identifiers (`obs:0`, `seg:1`).
-2. **Hierarchical Document Preservation**: `Observation` and `Segment` record section headers (`section_header`) and parent IDs (`parent_id`) so structural document context survives compilation.
-3. **Ontology Registry**: Managed by a versioned `OntologyRegistry` (`OntologyVersion.V1_0`). The compiler queries the registry for predicate and entity type normalization.
-4. **Typed Compiler Output Contract**: `MemoryCompiler.compile()` returns a `CompiledArtifact` object, providing full dictionary compatibility (`__getitem__`, `to_dict()`, `to_json()`) alongside typed properties.
+2. **Evidence Model (One Fact -> Many Evidence Records)**: Multiple artifacts asserting the same relationship accumulate `EvidenceRecord` items under one `PersistedFact` node rather than duplicating graph facts.
+3. **ArtifactRef Symbol Resolution**: `$ARTIFACT_SELF` resolves to `ArtifactRef(artifact_id)`, preserving strict ontology separation between evidence documents and domain concept entities.
+4. **Hierarchical Document Preservation**: `Observation` and `Segment` record section headers (`section_header`) and parent IDs (`parent_id`) so structural document context survives compilation.
+5. **Ontology Registry**: Managed by a versioned `OntologyRegistry` (`OntologyVersion.V1_0`). The compiler queries the registry for predicate and entity type normalization.
+6. **Typed Compiler Output Contract**: `MemoryCompiler.compile()` returns a `CompiledArtifact` object, providing full dictionary compatibility (`__getitem__`, `to_dict()`, `to_json()`) alongside typed properties.
 
 ## Claim vs. Fact
 
@@ -60,8 +65,9 @@ These are deliberately separate compiler IR representations:
 - `memory_engine/ontology.py` - fixed vocabulary (`EntityType`, `Predicate`), `OntologyVersion`, and `OntologyRegistry`
 - `memory_engine/extractors.py` - pluggable Statement/Fact extraction logic and entity resolution
 - `memory_engine/pipeline.py` - stage functions plus `MemoryCompiler`
-- `memory_engine/patch.py` - Phase 2 MemoryPatch contract specifications (`MemoryReader`, `MemoryDelta`, `MemoryPatchLinker`)
-- `docs/rfcs/` - formal Architecture RFCs (RFC 001, RFC 002)
+- `memory_engine/patch.py` - Phase 2 MemoryPatch implementation (`ThreePassMemoryPatchLinker`, `BindingPass`, `PersistencePass`, `AnalysisPipeline`, `AnalysisRule`, `EvidenceRecord`, `ArtifactRef`, `InMemoryProjectMemory`)
+- `docs/rfcs/` - formal Architecture RFCs (RFC 001, RFC 002, RFC 003)
 
 See `docs/roadmap.md` for current phase status and progress.
+
 

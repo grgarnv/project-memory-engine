@@ -86,7 +86,23 @@ This document tracks all design decisions, architectural improvements, and code 
 - **Architecture RFC Specifications**:
   - Created `docs/rfcs/RFC_001_COMPILER_LINKER_ARCHITECTURE.md` (Compiler/Linker boundary, `CompiledArtifact` contract, identity system, linker invariants).
   - Created `docs/rfcs/RFC_002_ONTOLOGY_REGISTRY_AND_EVOLUTION.md` (Ontology layer ownership, versioning schema, linker migration mapping).
+---
+
+## 7. Three-Pass MemoryPatch Linker Engine & Evidence Model
+
+- **Three-Pass Linker Pipeline (`ThreePassMemoryPatchLinker`)**:
+  - **Pass 1 (`BindingPass`)**: Binds local entities to persistent global IDs; resolves `$ARTIFACT_SELF` / `CURRENT_CHANGE` to `ArtifactRef(artifact_id)`, preserving strict ontology separation between evidence documents and domain concepts. Unresolved entities safely remain unresolved.
+  - **Pass 2 (`PersistencePass`)**: Promotes compiler facts to content-addressed `PersistedFact` nodes ($O(1)$ deduplication) and accumulates `EvidenceRecord` entries when multiple artifacts support the same fact.
+  - **Pass 3 (`AnalysisPipeline`)**: Runs an ordered sequence of deterministic `AnalysisRule` plugins (`ExplicitDeprecationRule`, `SingleOccupancyDecisionRule`, `DirectNegationConflictRule`).
+- **Evidence Model (`EvidenceRecord`)**:
+  - Implemented `EvidenceRecord` dataclass (`id`, `persisted_fact_id`, `source_artifact_id`, `source_fact_id`, `confidence`, `supporting_statements`).
+  - Supports: **One PersistedFact $\rightarrow$ Many EvidenceRecords**. Multiple artifacts asserting the same relationship accumulate evidence without graph node duplication.
+- **Reference In-Memory Persistent Store (`InMemoryProjectMemory`)**:
+  - Implemented monotonic append-only temporal property graph providing snapshot queries (`MemoryReader`) and delta application (`apply_delta`).
+- **`RFC_003_PERSISTENT_IDENTITY_EVIDENCE_AND_MEMORY.md`**:
+  - Created formal RFC specifying Persistent Identity, Evidence Model, `ArtifactRef` symbol resolution, `AnalysisRule` Pipeline Architecture, and an explicit **Non-Goals** section.
 - **Test Suite Expansion**:
-  - Added `tests/test_ontology.py`, `tests/test_compiled_artifact.py`, and `tests/test_patch_contracts.py`.
-  - Re-ran pytest suite: **27 passed in 0.03s** (100% pass rate).
+  - Added `tests/test_memory_linker.py` covering single artifact linking, 3x repeated linker execution idempotency, cross-artifact evidence accumulation, `ArtifactRef` symbol resolution, conservative single-occupancy decision rules, and custom `AnalysisRule` plugins.
+  - Re-ran pytest suite: **33 passed in 0.02s** (100% pass rate).
+
 
