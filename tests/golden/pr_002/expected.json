@@ -1,0 +1,24 @@
+{
+    "statements": [
+        {
+            "subject": "Current Change",
+            "predicate": "description",
+            "target": "Add retry logic to the payments client."
+        },
+        {
+            "subject": "Current Change",
+            "predicate": "description",
+            "target": "Currently a single network blip fails the whole checkout flow."
+        },
+        {
+            "subject": "Current Change",
+            "predicate": "has_reason",
+            "target": "Payments provider has intermittent 5xx errors under load."
+        },
+        {
+            "subject": "Current Change",
+            "predicate": "has_tradeoff",
+            "target": "Checkout latency increases slightly on retry."
+        }
+    ]
+}

@@ -1,0 +1,3 @@
+# No runtime dependencies yet - the pipeline is pure stdlib.
+# Dev/test tooling:
+pytest>=8.0
