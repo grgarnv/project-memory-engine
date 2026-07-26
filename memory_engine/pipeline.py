@@ -48,6 +48,10 @@ def observe(artifact: Artifact) -> list[Observation]:
 
     A ':'-terminated paragraph ("Reason:") is merged with the paragraph
     that follows it, so the label and its body travel together.
+
+    Markdown section headers (e.g. "## Context\nBody text...") are parsed so
+    that the section header determines the observation type while the body
+    text is preserved. Pure title headers without body text remain "header".
     """
     chunks = [c.strip() for c in artifact.content.split("\n\n") if c.strip()]
 
@@ -61,7 +65,25 @@ def observe(artifact: Artifact) -> list[Observation]:
             i += 1
 
         if text.startswith("#"):
-            obs_type = "header"
+            lines = text.split("\n", 1)
+            header_line = lines[0].lstrip("#").strip()
+            body_text = lines[1].strip() if len(lines) > 1 else ""
+
+            if not body_text:
+                obs_type = "header"
+            else:
+                text = body_text
+                lower_header = header_line.lower()
+                if "status" in lower_header:
+                    obs_type = "status"
+                elif "context" in lower_header or "reason" in lower_header:
+                    obs_type = "context"
+                elif "decision" in lower_header:
+                    obs_type = "decision"
+                elif "consequence" in lower_header or "trade-off" in lower_header or "tradeoff" in lower_header:
+                    obs_type = "consequence"
+                else:
+                    obs_type = "paragraph"
         elif text.startswith("Reason:"):
             obs_type = "reason"
         elif text.startswith("Trade-off:"):
@@ -82,7 +104,7 @@ def observe(artifact: Artifact) -> list[Observation]:
 # ---------------------------------------------------------------------------
 
 def segment(observations: list[Observation]) -> list[Segment]:
-    """Split each observation by semantic role. Headers carry no claim
+    """Split each observation by semantic role. Standalone title headers carry no claim
     about the change itself, so they're dropped here rather than passed
     downstream as noise."""
     segments = []
@@ -90,23 +112,35 @@ def segment(observations: list[Observation]) -> list[Segment]:
     for obs in observations:
         text = obs.text.strip()
 
-        if text.startswith("#"):
+        if obs.type == "header":
             continue
-        elif text.startswith("Reason:"):
+        elif obs.type in ("reason", "context") or text.startswith("Reason:"):
+            clean_text = text.replace("Reason:", "", 1).strip() if text.startswith("Reason:") else text
+            kind = SegmentKind.REASON if obs.type == "reason" else SegmentKind.CONTEXT
             segments.append(
                 Segment(
-                    kind=SegmentKind.REASON,
-                    text=text.replace("Reason:", "", 1).strip(),
+                    kind=kind,
+                    text=clean_text,
                     observation_id=obs.id,
                 )
             )
-        elif text.startswith("Trade-off:"):
+        elif obs.type in ("tradeoff", "consequence") or text.startswith("Trade-off:"):
+            clean_text = text.replace("Trade-off:", "", 1).strip() if text.startswith("Trade-off:") else text
+            kind = SegmentKind.TRADEOFF if obs.type == "tradeoff" else SegmentKind.CONSEQUENCE
             segments.append(
                 Segment(
-                    kind=SegmentKind.TRADEOFF,
-                    text=text.replace("Trade-off:", "", 1).strip(),
+                    kind=kind,
+                    text=clean_text,
                     observation_id=obs.id,
                 )
+            )
+        elif obs.type == "decision":
+            segments.append(
+                Segment(kind=SegmentKind.DECISION, text=text, observation_id=obs.id)
+            )
+        elif obs.type == "status":
+            segments.append(
+                Segment(kind=SegmentKind.STATUS, text=text, observation_id=obs.id)
             )
         else:
             segments.append(

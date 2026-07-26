@@ -25,10 +25,10 @@
 - [x] Empty placeholder files removed (`memory/`, `parser/`, `logger.py`,
       `analysis/confidence.py`, `notebooks/*.md`)
 - [x] README updated for a clone-and-run-in-under-a-minute quickstart
+- [x] Additional artifact shapes beyond PR-style (commit, ADR support with section header parsing)
 - [ ] `LLMStatementExtractor` - interface exists in `extractors.py`, raises
       `NotImplementedError`
 - [ ] General entity recognizer (replace the fixed pattern list)
-- [ ] Additional artifact shapes beyond PR-style (commit, ADR, issue)
 
 ## Phase 2 - entity resolution + Relation
 

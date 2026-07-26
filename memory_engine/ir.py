@@ -83,6 +83,10 @@ class SegmentKind(Enum):
     DESCRIPTION = "description"
     REASON = "reason"
     TRADEOFF = "tradeoff"
+    DECISION = "decision"
+    CONTEXT = "context"
+    STATUS = "status"
+    CONSEQUENCE = "consequence"
 
 
 @dataclass(slots=True)

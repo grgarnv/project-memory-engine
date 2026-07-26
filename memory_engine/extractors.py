@@ -40,6 +40,10 @@ _SEGMENT_PREDICATES = {
     SegmentKind.DESCRIPTION: "description",
     SegmentKind.REASON: "has_reason",
     SegmentKind.TRADEOFF: "has_tradeoff",
+    SegmentKind.DECISION: "selected",
+    SegmentKind.CONTEXT: "has_reason",
+    SegmentKind.STATUS: "describes",
+    SegmentKind.CONSEQUENCE: "has_tradeoff",
 }
 
 # Free-text predicate -> ontology Predicate used by the fact layer.
@@ -47,6 +51,8 @@ _PREDICATE_MAP = {
     "description": Predicate.DESCRIBES,
     "has_reason": Predicate.HAS_REASON,
     "has_tradeoff": Predicate.HAS_TRADEOFF,
+    "selected": Predicate.SELECTED,
+    "describes": Predicate.DESCRIBES,
 }
 
 
