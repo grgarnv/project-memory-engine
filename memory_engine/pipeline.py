@@ -29,6 +29,7 @@ from memory_engine.ir import (
     Entity,
     Fact,
     Claim,
+    Relation,
 )
 from memory_engine.ontology import EntityType
 from memory_engine.extractors import (
@@ -38,6 +39,11 @@ from memory_engine.extractors import (
     RuleBasedFactExtractor,
     EntityRecognizer,
     GeneralEntityRecognizer,
+    EntityResolver,
+    DeterministicEntityResolver,
+    RelationExtractor,
+    RuleBasedRelationExtractor,
+    ResolvedFact,
 )
 
 # ---------------------------------------------------------------------------
@@ -241,21 +247,53 @@ def extract_facts(claims: list[Claim], extractor: FactExtractor) -> list[Fact]:
 
 
 # ---------------------------------------------------------------------------
+# Stage 5c: Entity Resolution
+# ---------------------------------------------------------------------------
+
+def resolve_entities(
+    facts: list[Fact],
+    entities: list[Entity],
+    claims: list[Claim] | None = None,
+    resolver: EntityResolver | None = None,
+) -> list[ResolvedFact]:
+    """Map Fact subject and object text onto extracted Entity references."""
+    res = resolver or DeterministicEntityResolver()
+    return res.resolve(facts, entities, claims)
+
+
+# ---------------------------------------------------------------------------
+# Stage 5d: Relation Extraction
+# ---------------------------------------------------------------------------
+
+def extract_relations(
+    resolved_facts: list[ResolvedFact],
+    extractor: RelationExtractor | None = None,
+) -> list[Relation]:
+    """Construct Relation IR objects from resolved entity references."""
+    ext = extractor or RuleBasedRelationExtractor()
+    return ext.extract(resolved_facts)
+
+
+# ---------------------------------------------------------------------------
 # Compiler
 # ---------------------------------------------------------------------------
 
 class MemoryCompiler:
-    """Runs the full Artifact -> Statements/Entities/Facts/Claims pipeline."""
+    """Runs the full Artifact -> Statements/Entities/Facts/Claims/Relations pipeline."""
 
     def __init__(
         self,
         statement_extractor: StatementExtractor | None = None,
         fact_extractor: FactExtractor | None = None,
         entity_recognizer: EntityRecognizer | None = None,
+        entity_resolver: EntityResolver | None = None,
+        relation_extractor: RelationExtractor | None = None,
     ):
         self.statement_extractor = statement_extractor or RuleBasedStatementExtractor()
         self.fact_extractor = fact_extractor or RuleBasedFactExtractor()
         self.entity_recognizer = entity_recognizer or GeneralEntityRecognizer()
+        self.entity_resolver = entity_resolver or DeterministicEntityResolver()
+        self.relation_extractor = relation_extractor or RuleBasedRelationExtractor()
 
     def compile(self, artifact: Artifact) -> dict:
         observations = observe(artifact)
@@ -264,6 +302,8 @@ class MemoryCompiler:
         entities = extract_entities(segments, self.entity_recognizer)
         claims = extract_claims(statements)
         facts = extract_facts(claims, self.fact_extractor)
+        resolved_facts = resolve_entities(facts, entities, claims, self.entity_resolver)
+        relations = extract_relations(resolved_facts, self.relation_extractor)
 
         return {
             "observations": observations,
@@ -272,4 +312,6 @@ class MemoryCompiler:
             "entities": entities,
             "facts": facts,
             "claims": claims,
+            "relations": relations,
         }
+

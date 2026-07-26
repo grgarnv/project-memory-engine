@@ -173,8 +173,23 @@ class Fact:
 
 
 # ---------------------------------------------------------------------------
+# Stage 5c: Relation - Entity-to-Entity edge produced from resolved Facts
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class Relation:
+    id: str = field(default_factory=_uid)
+    subject_entity_id: str = ""
+    predicate: Predicate = Predicate.UNKNOWN
+    object_entity_id: str = ""
+    source_fact_id: str = ""
+    confidence: float = 1.0
+
+
+# ---------------------------------------------------------------------------
 # Stage 6: MemoryPatch (future - not produced by the pipeline yet)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class MemoryPatch:

@@ -9,12 +9,13 @@ Pluggable logic for turning one IR object into another. Two interfaces:
 Swap in a smarter (e.g. LLM-backed) extractor later by implementing the
 same interface - the pipeline doesn't care which one it's given.
 """
+from dataclasses import dataclass
 import json
 import os
 import re
 from abc import ABC, abstractmethod
 
-from memory_engine.ir import Segment, SegmentKind, Statement, Claim, Fact, FactType, Entity
+from memory_engine.ir import Segment, SegmentKind, Statement, Claim, Fact, FactType, Entity, Relation
 from memory_engine.ontology import Predicate, EntityType
 
 CURRENT_CHANGE = "Current Change"
@@ -325,3 +326,118 @@ class GeneralEntityRecognizer(EntityRecognizer):
                 )
 
         return list(entities.values())
+
+
+# ---------------------------------------------------------------------------
+# Entity Resolution & Relation Extraction
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class ResolvedFact:
+    """Internal compiler data structure linking a Fact to resolved Entity references.
+    Not part of the public IR."""
+    fact: Fact
+    subject_entity: Entity | None = None
+    object_entity: Entity | None = None
+    confidence: float = 1.0
+
+
+class EntityResolver(ABC):
+    @abstractmethod
+    def resolve(
+        self,
+        facts: list[Fact],
+        entities: list[Entity],
+        claims: list[Claim] | None = None,
+    ) -> list[ResolvedFact]:
+        """Resolve Fact subject and object text against extracted Entity list."""
+
+
+class DeterministicEntityResolver(EntityResolver):
+    """
+    Performs exact canonical name and explicit alias matching (case-insensitive)
+    of Fact subject and object text against extracted Entity objects.
+
+    Inherits confidence from the originating Claim (via Fact.source_claim).
+    Unresolved entity references remain None.
+    """
+
+    def resolve(
+        self,
+        facts: list[Fact],
+        entities: list[Entity],
+        claims: list[Claim] | None = None,
+    ) -> list[ResolvedFact]:
+        lookup: dict[str, list[Entity]] = {}
+        for entity in entities:
+            keys = {entity.canonical_name.lower()}
+            for alias in entity.aliases:
+                keys.add(alias.lower())
+
+            for key in keys:
+                if key not in lookup:
+                    lookup[key] = []
+                if entity not in lookup[key]:
+                    lookup[key].append(entity)
+
+        def _resolve_one(key_text: str) -> Entity | None:
+            matches = lookup.get(key_text.lower(), [])
+            if len(matches) == 1:
+                return matches[0]
+            # Ambiguous (len > 1) or missing (len == 0) -> leave unresolved
+            return None
+
+        claim_map: dict[str, Claim] = {}
+        if claims:
+            for claim in claims:
+                claim_map[claim.id] = claim
+
+        resolved: list[ResolvedFact] = []
+        for fact in facts:
+            sub_ent = _resolve_one(fact.subject)
+            obj_ent = _resolve_one(fact.object)
+
+            confidence = 1.0
+            if fact.source_claim and fact.source_claim in claim_map:
+                confidence = claim_map[fact.source_claim].confidence
+
+            resolved.append(
+                ResolvedFact(
+                    fact=fact,
+                    subject_entity=sub_ent,
+                    object_entity=obj_ent,
+                    confidence=confidence,
+                )
+            )
+
+        return resolved
+
+
+
+class RelationExtractor(ABC):
+    @abstractmethod
+    def extract(self, resolved_facts: list[ResolvedFact]) -> list[Relation]:
+        """Construct Relation objects from resolved fact references."""
+
+
+class RuleBasedRelationExtractor(RelationExtractor):
+    """
+    Constructs Relation IR objects for ResolvedFact instances where both
+    subject_entity and object_entity are successfully resolved.
+    """
+
+    def extract(self, resolved_facts: list[ResolvedFact]) -> list[Relation]:
+        relations: list[Relation] = []
+        for rf in resolved_facts:
+            if rf.subject_entity and rf.object_entity:
+                relations.append(
+                    Relation(
+                        subject_entity_id=rf.subject_entity.id,
+                        predicate=rf.fact.predicate,
+                        object_entity_id=rf.object_entity.id,
+                        source_fact_id=rf.fact.id,
+                        confidence=rf.confidence,
+                    )
+                )
+        return relations
+

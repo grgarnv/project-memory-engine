@@ -31,10 +31,10 @@
 
 ## Phase 2 - entity resolution + Relation
 
-- [ ] Link Fact subject/object text to the separately-extracted Entity list
-      (aliases, fuzzy matching - this is the hard part, not the dataclass)
-- [ ] `Relation` IR type (Entity --predicate--> Entity), built from
-      resolved Facts + Entities
+- [x] Link Fact subject/object text to the separately-extracted Entity list
+      (`DeterministicEntityResolver` with canonical name and alias matching)
+- [x] `Relation` IR type (`Entity --predicate--> Entity`), built from
+      resolved Facts + Entities via `RuleBasedRelationExtractor`
 - [ ] `MemoryPatch` production (diffing new facts against existing memory)
 - [ ] Project Memory storage layer
 

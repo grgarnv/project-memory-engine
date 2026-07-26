@@ -96,3 +96,82 @@ def test_llm_provider_raises_missing_api_key():
     with pytest.raises(ValueError, match="Gemini API key missing"):
         GeminiProvider(api_key="")
 
+
+def test_entity_resolution_and_relation_extraction():
+    from memory_engine.ir import Fact, Entity, Claim
+    from memory_engine.ontology import EntityType, Predicate
+    from memory_engine.extractors import DeterministicEntityResolver, RuleBasedRelationExtractor
+
+    ent_a = Entity(canonical_name="API Gateway", entity_type=EntityType.COMPONENT)
+    ent_b = Entity(canonical_name="JWT validation", entity_type=EntityType.FEATURE)
+    entities = [ent_a, ent_b]
+
+    claim = Claim(subject="API Gateway", predicate="uses", target="JWT validation", confidence=0.85)
+    fact = Fact(subject="API Gateway", predicate=Predicate.USES, object="JWT validation", source_claim=claim.id)
+
+    resolver = DeterministicEntityResolver()
+    resolved_facts = resolver.resolve([fact], entities, [claim])
+
+    assert len(resolved_facts) == 1
+    assert resolved_facts[0].subject_entity == ent_a
+    assert resolved_facts[0].object_entity == ent_b
+    assert resolved_facts[0].confidence == 0.85
+
+    extractor = RuleBasedRelationExtractor()
+    relations = extractor.extract(resolved_facts)
+
+    assert len(relations) == 1
+    assert relations[0].subject_entity_id == ent_a.id
+    assert relations[0].object_entity_id == ent_b.id
+    assert relations[0].predicate == Predicate.USES
+    assert relations[0].source_fact_id == fact.id
+    assert relations[0].confidence == 0.85
+
+
+def test_unresolved_entities_do_not_produce_relations():
+    from memory_engine.ir import Fact, Entity
+    from memory_engine.ontology import EntityType, Predicate
+    from memory_engine.extractors import DeterministicEntityResolver, RuleBasedRelationExtractor
+
+    ent_a = Entity(canonical_name="API Gateway", entity_type=EntityType.COMPONENT)
+    entities = [ent_a]
+
+    # Subject is known, but object "Unknown Service" is not in entities list
+    fact = Fact(subject="API Gateway", predicate=Predicate.USES, object="Unknown Service")
+
+    resolver = DeterministicEntityResolver()
+    resolved_facts = resolver.resolve([fact], entities)
+
+    assert len(resolved_facts) == 1
+    assert resolved_facts[0].subject_entity == ent_a
+    assert resolved_facts[0].object_entity is None
+
+    extractor = RuleBasedRelationExtractor()
+    relations = extractor.extract(resolved_facts)
+
+    # Cannot construct a valid Relation edge when object entity is unresolved
+    assert len(relations) == 0
+
+
+def test_ambiguous_entities_remain_unresolved():
+    from memory_engine.ir import Fact, Entity
+    from memory_engine.ontology import EntityType, Predicate
+    from memory_engine.extractors import DeterministicEntityResolver
+
+    # Two distinct entities sharing the exact same alias "Auth"
+    ent1 = Entity(canonical_name="AuthComponent", entity_type=EntityType.COMPONENT, aliases=["Auth"])
+    ent2 = Entity(canonical_name="AuthService", entity_type=EntityType.SERVICE, aliases=["Auth"])
+    entities = [ent1, ent2]
+
+    fact = Fact(subject="Auth", predicate=Predicate.USES, object="AuthComponent")
+
+    resolver = DeterministicEntityResolver()
+    resolved_facts = resolver.resolve([fact], entities)
+
+    # Subject "Auth" is ambiguous (matches both ent1 and ent2) -> subject_entity MUST be None
+    assert resolved_facts[0].subject_entity is None
+    # Object "AuthComponent" is unique -> object_entity resolves to ent1
+    assert resolved_facts[0].object_entity == ent1
+
+
+
