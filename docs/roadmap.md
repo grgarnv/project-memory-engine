@@ -26,9 +26,8 @@
       `analysis/confidence.py`, `notebooks/*.md`)
 - [x] README updated for a clone-and-run-in-under-a-minute quickstart
 - [x] Additional artifact shapes beyond PR-style (commit, ADR support with section header parsing)
-- [ ] `LLMStatementExtractor` - interface exists in `extractors.py`, raises
-      `NotImplementedError`
-- [ ] General entity recognizer (replace the fixed pattern list)
+- [x] `LLMStatementExtractor` - implemented behind `LLMProvider` abstraction (`OpenAIProvider`, `GeminiProvider`, `GenericHTTPProvider`, `MockLLMProvider`)
+- [x] General entity recognizer (`GeneralEntityRecognizer` replacing fixed regex list)
 
 ## Phase 2 - entity resolution + Relation
 

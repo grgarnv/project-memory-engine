@@ -36,8 +36,9 @@ from memory_engine.extractors import (
     FactExtractor,
     RuleBasedStatementExtractor,
     RuleBasedFactExtractor,
+    EntityRecognizer,
+    GeneralEntityRecognizer,
 )
-
 
 # ---------------------------------------------------------------------------
 # Stage 1: Observation
@@ -167,28 +168,18 @@ def extract_statements(
 # Stage 4: Entity
 # ---------------------------------------------------------------------------
 
-# NOTE: this is a naive fixed-pattern matcher, not a general NER step - it
-# will only ever recognize the names listed below. It exists to prove the
-# Entity stage out end-to-end; swapping in a real recognizer is a Phase 1
-# item (see docs/roadmap.md), same as LLMStatementExtractor.
-_KNOWN_ENTITY_PATTERNS = [
-    (r"API Gateway", EntityType.COMPONENT),
-    (r"JWT validation", EntityType.FEATURE),
-    (r"authentication", EntityType.FEATURE),
-]
+def extract_entities(
+    segments: list[Segment], recognizer: EntityRecognizer | None = None
+) -> list[Entity]:
 
-
-def extract_entities(segments: list[Segment]) -> list[Entity]:
+    rec = recognizer or GeneralEntityRecognizer()
     entities: dict[str, Entity] = {}
 
     for seg in segments:
-        for pattern, entity_type in _KNOWN_ENTITY_PATTERNS:
-            for match in re.findall(pattern, seg.text, flags=re.IGNORECASE):
-                key = match.lower()
-                if key not in entities:
-                    entities[key] = Entity(
-                        canonical_name=match, entity_type=entity_type, aliases=[match]
-                    )
+        for entity in rec.recognize(seg.text):
+            key = entity.canonical_name.lower()
+            if key not in entities:
+                entities[key] = entity
 
     return list(entities.values())
 
@@ -260,15 +251,17 @@ class MemoryCompiler:
         self,
         statement_extractor: StatementExtractor | None = None,
         fact_extractor: FactExtractor | None = None,
+        entity_recognizer: EntityRecognizer | None = None,
     ):
         self.statement_extractor = statement_extractor or RuleBasedStatementExtractor()
         self.fact_extractor = fact_extractor or RuleBasedFactExtractor()
+        self.entity_recognizer = entity_recognizer or GeneralEntityRecognizer()
 
     def compile(self, artifact: Artifact) -> dict:
         observations = observe(artifact)
         segments = segment(observations)
         statements = extract_statements(segments, self.statement_extractor)
-        entities = extract_entities(segments)
+        entities = extract_entities(segments, self.entity_recognizer)
         claims = extract_claims(statements)
         facts = extract_facts(claims, self.fact_extractor)
 
