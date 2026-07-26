@@ -30,7 +30,10 @@ PYTHONPATH=. pytest -v
 
 Golden-file tests live in `tests/golden/<case>/` as an `input.md` /
 `expected.json` pair. Add a new case by dropping in both files - the suite
-picks up every directory under `tests/golden/` automatically.
+picks up every directory under `tests/golden/` automatically. `expected.json`
+can optionally include `"fact_count": N` to also assert how many Claims get
+promoted to Facts (see `tests/golden/pr_003_hedged` for a case that asserts
+`0` - a hedged claim that should *not* be promoted).
 
 ## Layout
 

@@ -25,6 +25,10 @@ def main():
     for i, fact in enumerate(result["facts"], start=1):
         print(f"  [{i}] {fact.subject} --{fact.predicate.value}--> {fact.object}")
 
+    not_promoted = len(result["claims"]) - len(result["facts"])
+    if not_promoted:
+        print(f"\n{not_promoted} claim(s) not promoted to Fact (low confidence or unstructured)")
+
 
 if __name__ == "__main__":
     main()

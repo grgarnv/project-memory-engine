@@ -6,18 +6,23 @@ so the whole data model can be read top to bottom without file-hunting.
 
 Pipeline shape:
 
-    Artifact -> Observation -> Segment -> Statement -> Fact / Claim -> MemoryPatch
+    Artifact -> Observation -> Segment -> Statement -> Claim -> Fact
                                               |
                                               +-> Entity
+
+    MemoryPatch sits downstream of all of it - not produced yet.
 
 Artifact    raw input (a PR, commit, ADR, ...)
 Observation artifact chunked into typed paragraphs
 Segment     an observation split by semantic role (description/reason/tradeoff)
 Statement   a segment turned into a (subject, predicate, target) triple
 Entity      a named thing (component, feature, ...) pulled out of a segment
-Fact        a statement normalized against the ontology's Predicate enum
-Claim       a statement wrapped with a confidence score (future: merged
-            across multiple statements once we have more than one source)
+Claim       something the artifact asserts - every Statement becomes a
+            Claim, scored with a confidence heuristic. May be wrong,
+            vague, or unstructured; that's fine, it's just a claim.
+Fact        a Claim FactPass has accepted as structured knowledge - only
+            promoted if it's both confident and maps onto a known
+            ontology Predicate. Everything else stays a Claim only.
 MemoryPatch the diff to apply to long-term project memory (not wired up yet
             - see docs/roadmap.md)
 """
@@ -119,7 +124,30 @@ class Entity:
 
 
 # ---------------------------------------------------------------------------
-# Stage 5a: Fact - statement normalized against the ontology
+# Stage 5a: Claim - statement wrapped with a confidence score
+#
+# A Claim is something the artifact asserts. It may be wrong, vague, or
+# unstructured - that's fine, it's just a claim. Every Statement becomes
+# exactly one Claim; nothing is filtered out at this stage.
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class Claim:
+    id: str = field(default_factory=_uid)
+    subject: str = ""
+    predicate: str = ""
+    target: str = ""
+    confidence: float = 1.0
+    supporting_statements: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Stage 5b: Fact - a Claim the compiler has accepted as structured knowledge
+#
+# Stronger than a Claim: promoted only once FactPass has checked it's both
+# concrete (confidence above threshold) and representable (predicate maps
+# to a known ontology Predicate). Keeps a direct link back to the Claim
+# it came from, which itself points back to the originating Statement(s).
 # ---------------------------------------------------------------------------
 
 class FactType(Enum):
@@ -136,20 +164,7 @@ class Fact:
     predicate: Predicate = Predicate.UNKNOWN
     object: str = ""
     fact_type: FactType = FactType.OBSERVATION
-    supporting_statements: list[str] = field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# Stage 5b: Claim - statement wrapped with a confidence score
-# ---------------------------------------------------------------------------
-
-@dataclass(slots=True)
-class Claim:
-    id: str = field(default_factory=_uid)
-    subject: str = ""
-    predicate: str = ""
-    target: str = ""
-    confidence: float = 0.5
+    source_claim: str = ""
     supporting_statements: list[str] = field(default_factory=list)
 
 

@@ -4,21 +4,38 @@
 
 - [x] Compiler pipeline skeleton (`observe -> segment -> extract_*`)
 - [x] Rule-based statement extractor
-- [x] Rule-based fact extractor (ontology normalization)
 - [x] Naive entity extractor (fixed patterns - see note in `pipeline.py`)
-- [x] Claim wrapping (fixed confidence, not yet computed)
 - [x] Golden tests (`tests/golden/pr_001`, `tests/golden/pr_002`)
 
-## Phase 1 - in progress
+## Phase 1 - finish the prototype (done except LLM/general-NER items)
 
+- [x] Wire `EntityPass`/`SemanticPass` equivalents into `MemoryCompiler.compile()`
+      (nothing runs outside of `compile()` now)
+- [x] Statement -> Claim -> Fact as a real filter, not two parallel mappers:
+      `extract_claims()` scores every Statement (hedge-word heuristic -
+      placeholder, see `pipeline._score_confidence`); `extract_facts()`
+      promotes a Claim only if `confidence >= FACT_CONFIDENCE_THRESHOLD`
+      *and* its predicate maps to a known ontology `Predicate`
+- [x] Full provenance chain: `Fact.source_claim` -> `Claim.supporting_statements`
+      -> `Statement.id`
+- [x] Convert manual test script into real `pytest` tests
+- [x] Negative golden test proving a hedged claim is *not* promoted
+      (`tests/golden/pr_003_hedged`)
+- [x] `pyproject.toml` / `requirements.txt` filled out
+- [x] Empty placeholder files removed (`memory/`, `parser/`, `logger.py`,
+      `analysis/confidence.py`, `notebooks/*.md`)
+- [x] README updated for a clone-and-run-in-under-a-minute quickstart
 - [ ] `LLMStatementExtractor` - interface exists in `extractors.py`, raises
       `NotImplementedError`
 - [ ] General entity recognizer (replace the fixed pattern list)
-- [ ] Claim confidence actually computed instead of defaulted to 0.5
 - [ ] Additional artifact shapes beyond PR-style (commit, ADR, issue)
 
-## Phase 2 - not started
+## Phase 2 - entity resolution + Relation
 
+- [ ] Link Fact subject/object text to the separately-extracted Entity list
+      (aliases, fuzzy matching - this is the hard part, not the dataclass)
+- [ ] `Relation` IR type (Entity --predicate--> Entity), built from
+      resolved Facts + Entities
 - [ ] `MemoryPatch` production (diffing new facts against existing memory)
 - [ ] Project Memory storage layer
 
@@ -26,3 +43,10 @@
 
 - [ ] Explanation Engine
 - [ ] Compliance Engine
+
+## Explicitly out of scope for now
+
+No vector databases, no graph databases (Neo4j), no embeddings, no agent
+loops, no MCP, no orchestration frameworks. None of that solves "can the
+compiler deterministically understand one artifact" - which is still the
+open problem Phase 1/2 are about.

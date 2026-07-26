@@ -6,8 +6,13 @@ Compiler Pipeline
       -> segment()              split each observation by semantic role
       -> extract_statements()   segments -> (subject, predicate, target)
       -> extract_entities()     pull known entities out of segments
-      -> extract_facts()        statements -> ontology-normalized facts
       -> extract_claims()       statements -> confidence-scored claims
+      -> extract_facts()        claims -> filtered, ontology-normalized facts
+
+    Claim and Fact are deliberately separate: a Claim is anything the
+    artifact asserts (may be wrong, vague, or hedged); a Fact is a Claim
+    FactPass has accepted as structured knowledge. See extract_facts()
+    below for the promotion rule.
 
 Every stage is a plain function: a list in, a list out. There are no
 per-stage classes and no hidden call order - `MemoryCompiler.compile()`
@@ -155,33 +160,59 @@ def extract_entities(segments: list[Segment]) -> list[Entity]:
 
 
 # ---------------------------------------------------------------------------
-# Stage 5a: Fact
+# Stage 5a: Claim
 # ---------------------------------------------------------------------------
 
-def extract_facts(statements: list[Statement], extractor: FactExtractor) -> list[Fact]:
-    facts = []
-    for statement in statements:
-        facts.extend(extractor.extract(statement))
-    return facts
+# Placeholder confidence heuristic: hedge/modal words lower confidence,
+# their absence leaves it at full confidence. This is a keyword match, not
+# real epistemic reasoning about the sentence - it will misfire on things
+# like "could not reproduce the bug" (hedge word, not actually a hedged
+# claim) or on negation/sarcasm generally. Good enough to prove the
+# Claim -> Fact filter works; replacing it is a later-phase item, not
+# something to grow in place.
+_HEDGE_WORDS = {
+    "should", "might", "may", "could", "probably",
+    "likely", "appears", "seems", "possibly", "perhaps",
+}
+_HEDGED_CONFIDENCE = 0.4
+_DEFAULT_CONFIDENCE = 1.0
 
 
-# ---------------------------------------------------------------------------
-# Stage 5b: Claim
-# ---------------------------------------------------------------------------
+def _score_confidence(text: str) -> float:
+    words = set(re.findall(r"[a-zA-Z']+", text.lower()))
+    if words & _HEDGE_WORDS:
+        return _HEDGED_CONFIDENCE
+    return _DEFAULT_CONFIDENCE
+
 
 def extract_claims(statements: list[Statement]) -> list[Claim]:
-    """Wrap each statement as a Claim. Confidence is fixed for now; once
-    multiple artifacts can corroborate the same claim, this is where
-    confidence would be computed instead of defaulted."""
+    """Every Statement becomes exactly one Claim - nothing is filtered out
+    here. A Claim is just something the artifact asserts; it may be wrong,
+    vague, or unstructured. Confidence is scored, not defaulted."""
     return [
         Claim(
             subject=s.subject,
             predicate=s.predicate,
             target=s.target,
+            confidence=_score_confidence(s.target),
             supporting_statements=[s.id],
         )
         for s in statements
     ]
+
+
+# ---------------------------------------------------------------------------
+# Stage 5b: Fact
+# ---------------------------------------------------------------------------
+
+def extract_facts(claims: list[Claim], extractor: FactExtractor) -> list[Fact]:
+    """Filter Claims down to the ones concrete and structured enough to
+    promote to Facts. A Claim that isn't promoted simply isn't included
+    here - it still exists as a Claim, just not as a Fact."""
+    facts = []
+    for claim in claims:
+        facts.extend(extractor.extract(claim))
+    return facts
 
 
 # ---------------------------------------------------------------------------
@@ -204,8 +235,8 @@ class MemoryCompiler:
         segments = segment(observations)
         statements = extract_statements(segments, self.statement_extractor)
         entities = extract_entities(segments)
-        facts = extract_facts(statements, self.fact_extractor)
         claims = extract_claims(statements)
+        facts = extract_facts(claims, self.fact_extractor)
 
         return {
             "observations": observations,

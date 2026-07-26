@@ -20,5 +20,6 @@
             "predicate": "has_tradeoff",
             "target": "Checkout latency increases slightly on retry."
         }
-    ]
+    ],
+    "fact_count": 4
 }

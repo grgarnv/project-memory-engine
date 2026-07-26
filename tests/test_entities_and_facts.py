@@ -30,3 +30,22 @@ def test_claims_carry_confidence():
 
     assert len(result["claims"]) == len(result["statements"])
     assert all(0.0 <= c.confidence <= 1.0 for c in result["claims"])
+
+
+def test_confident_claim_is_promoted_to_fact():
+    artifact = Artifact(type=ArtifactType.PR, content=SAMPLE.read_text())
+    result = MemoryCompiler().compile(artifact)
+
+    assert len(result["claims"]) == len(result["facts"])
+    for fact in result["facts"]:
+        assert fact.source_claim  # provenance link back to the Claim is set
+
+
+def test_hedged_claim_is_not_promoted_to_fact():
+    hedged = "# Pull Request\n\nThis should improve performance.\n"
+    artifact = Artifact(type=ArtifactType.PR, content=hedged)
+    result = MemoryCompiler().compile(artifact)
+
+    assert len(result["claims"]) == 1
+    assert result["claims"][0].confidence < 0.7
+    assert len(result["facts"]) == 0

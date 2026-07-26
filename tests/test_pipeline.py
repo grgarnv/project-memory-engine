@@ -18,7 +18,8 @@ def test_golden_statements(case):
         type=ArtifactType.PR,
         content=(case_dir / "input.md").read_text(),
     )
-    expected = json.loads((case_dir / "expected.json").read_text())["statements"]
+    expected_raw = json.loads((case_dir / "expected.json").read_text())
+    expected_statements = expected_raw["statements"]
 
     result = MemoryCompiler().compile(artifact)
 
@@ -27,4 +28,7 @@ def test_golden_statements(case):
         for s in result["statements"]
     ]
 
-    assert actual == expected
+    assert actual == expected_statements
+
+    if "fact_count" in expected_raw:
+        assert len(result["facts"]) == expected_raw["fact_count"]

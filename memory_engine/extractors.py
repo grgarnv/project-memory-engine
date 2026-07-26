@@ -11,10 +11,15 @@ same interface - the pipeline doesn't care which one it's given.
 """
 from abc import ABC, abstractmethod
 
-from memory_engine.ir import Segment, SegmentKind, Statement, Fact, FactType
+from memory_engine.ir import Segment, SegmentKind, Statement, Claim, Fact, FactType
 from memory_engine.ontology import Predicate
 
 CURRENT_CHANGE = "Current Change"
+
+# A Claim is promoted to a Fact only above this confidence. Named constant
+# rather than a bare number so the cutoff is obvious and easy to tune
+# without reading FactExtractor's implementation.
+FACT_CONFIDENCE_THRESHOLD = 0.7
 
 
 class StatementExtractor(ABC):
@@ -25,8 +30,9 @@ class StatementExtractor(ABC):
 
 class FactExtractor(ABC):
     @abstractmethod
-    def extract(self, statement: Statement) -> list[Fact]:
-        """Convert one Statement into zero or more Facts."""
+    def extract(self, claim: Claim) -> list[Fact]:
+        """Decide whether a Claim is concrete and structured enough to be
+        promoted to a Fact. Returns [] if it should remain a Claim only."""
 
 
 # Segment kind -> free-text predicate used by the statement layer.
@@ -60,16 +66,31 @@ class RuleBasedStatementExtractor(StatementExtractor):
 
 
 class RuleBasedFactExtractor(FactExtractor):
-    """Normalizes a Statement's free-text predicate into the ontology."""
+    """Filters Claims into Facts. A Claim is promoted only if both hold:
 
-    def extract(self, statement: Statement) -> list[Fact]:
+      - concrete enough:    confidence >= FACT_CONFIDENCE_THRESHOLD
+      - structured enough:  predicate maps to a known ontology Predicate
+
+    Otherwise the claim remains a Claim only - this method returns [].
+    """
+
+    def extract(self, claim: Claim) -> list[Fact]:
+        predicate = _PREDICATE_MAP.get(claim.predicate, Predicate.UNKNOWN)
+
+        if claim.confidence < FACT_CONFIDENCE_THRESHOLD:
+            return []
+
+        if predicate is Predicate.UNKNOWN:
+            return []
+
         return [
             Fact(
-                subject=statement.subject,
-                predicate=_PREDICATE_MAP.get(statement.predicate, Predicate.UNKNOWN),
-                object=statement.target,
+                subject=claim.subject,
+                predicate=predicate,
+                object=claim.target,
                 fact_type=FactType.OBSERVATION,
-                supporting_statements=[statement.id],
+                source_claim=claim.id,
+                supporting_statements=list(claim.supporting_statements),
             )
         ]
 

@@ -15,5 +15,6 @@
             "predicate": "has_tradeoff",
             "target": "Gateway complexity increases."
         }
-    ]
+    ],
+    "fact_count": 3
 }
