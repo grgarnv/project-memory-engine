@@ -64,25 +64,12 @@ class IdentityResolver:
         self.reader = reader
 
     def equivalence_class(self, ref: str) -> EquivalenceClass:
-        members: set[str] = {ref}
-        frontier = [ref]
-        truncated = False
-
-        while frontier:
-            current = frontier.pop()
-            for fact in self.reader.facts_mentioning(current):
-                if fact.predicate is not Predicate.SAME_AS:
-                    continue
-                if self.reader.is_superseded(fact.id):
-                    continue  # a retracted merge is not a merge
-                for candidate in (fact.subject_ref, fact.object_ref):
-                    if candidate in members:
-                        continue
-                    if len(members) >= MAX_CLASS_SIZE:
-                        truncated = True
-                        continue
-                    members.add(candidate)
-                    frontier.append(candidate)
+        # One call. The store knows how to walk its own edges - SQLite does it
+        # as a recursive CTE, and doing it here as a Python loop would issue a
+        # query per alias on every question asked.
+        found = self.reader.identity_closure(ref, MAX_CLASS_SIZE)
+        members = set(found) | {ref}
+        truncated = len(found) >= MAX_CLASS_SIZE
 
         ordered = self._order(members)
         return EquivalenceClass(

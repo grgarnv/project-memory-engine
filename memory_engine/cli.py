@@ -152,6 +152,61 @@ def cmd_health(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pull(args: argparse.Namespace) -> int:
+    from memory_engine.sources import FilesystemSource, GitHubSource, GitSource
+
+    memory = _open_memory(args.db)
+    ingestor = Ingestor(memory=memory)
+
+    if args.source.startswith("github://"):
+        owner, _, repo = args.source[len("github://"):].partition("/")
+        sources = [GitHubSource(owner, repo, kind=k) for k in ("pulls", "issues")]
+    elif args.source.startswith("git://"):
+        sources = [GitSource(args.source[len("git://"):])]
+    else:
+        sources = [FilesystemSource(args.source)]
+
+    for source in sources:
+        run = ingestor.ingest_source(source, resume=not args.full)
+        print("  " + run.summary)
+        for note in run.notes:
+            print(f"      ! {note}")
+
+    print("\nmemory:", ", ".join(f"{k}={v}" for k, v in memory.stats().items()))
+    return 0
+
+
+def cmd_correct(args: argparse.Namespace) -> int:
+    from memory_engine.correction import Correction, CorrectionError, apply_correction
+
+    memory = _open_memory(args.db)
+    try:
+        apply_correction(memory, Correction(
+            fact_id=args.fact_id, author=args.author, reason=args.reason))
+    except CorrectionError as exc:
+        print(f"Could not record the correction: {exc}")
+        return 1
+    print(f"Recorded. Fact {args.fact_id} is retired on {args.author}'s authority "
+          f"and remains queryable as history.")
+    return 0
+
+
+def cmd_pilot(args: argparse.Namespace) -> int:
+    from memory_engine.pilot import run_pilot
+
+    memory = _open_memory(args.db)
+    report = run_pilot(memory, args.questions)
+    print(report.render())
+    return 0 if report.wrong == 0 else 1
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    from memory_engine.mcp_server import MemoryMCPServer
+
+    MemoryMCPServer(args.db or "project.db").serve()
+    return 0
+
+
 def cmd_brief(args: argparse.Namespace) -> int:
     from memory_engine.apps import brief
     memory = _open_memory(args.db)
@@ -245,6 +300,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_health = sub.add_parser("health", help="where this knowledge base is weak")
     p_health.add_argument("--db")
     p_health.set_defaults(func=cmd_health)
+
+    p_pull = sub.add_parser("pull", help="ingest from a real source, incrementally")
+    p_pull.add_argument("source", help="a path, git://<path>, or github://<owner>/<repo>")
+    p_pull.add_argument("--db")
+    p_pull.add_argument("--full", action="store_true", help="ignore the watermark")
+    p_pull.set_defaults(func=cmd_pull)
+
+    p_correct = sub.add_parser("correct", help="record that a fact is wrong")
+    p_correct.add_argument("fact_id")
+    p_correct.add_argument("--author", required=True)
+    p_correct.add_argument("--reason", required=True)
+    p_correct.add_argument("--db")
+    p_correct.set_defaults(func=cmd_correct)
+
+    p_pilot = sub.add_parser("pilot", help="score memory against real questions")
+    p_pilot.add_argument("questions")
+    p_pilot.add_argument("--db")
+    p_pilot.set_defaults(func=cmd_pilot)
+
+    p_serve = sub.add_parser("serve", help="run the MCP server over stdio")
+    p_serve.add_argument("--db")
+    p_serve.set_defaults(func=cmd_serve)
 
     p_brief = sub.add_parser("brief", help="onboarding overview from accumulated memory")
     p_brief.add_argument("--db")

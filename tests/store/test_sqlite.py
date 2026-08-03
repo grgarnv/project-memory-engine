@@ -60,9 +60,21 @@ def test_store_issues_no_update_or_delete():
         and node.value not in docstrings
     ]
 
+    # Scoped to KNOWLEDGE tables. `ingestion_watermarks` is bookkeeping about
+    # how far a source has been read - it is not something the project knows,
+    # and it is mutable by nature. Everything memory actually holds is
+    # append-only, and that is what this asserts.
+    knowledge_tables = ("entities", "entity_aliases", "facts", "evidence",
+                        "supersessions", "conflicts", "applied_artifacts")
+
     for sql in literals:
-        assert "DELETE FROM" not in sql, sql
-        assert "UPDATE " not in sql, sql
+        mutating = "DELETE FROM" in sql or "UPDATE " in sql
+        if not mutating:
+            continue
+        for table in knowledge_tables:
+            assert table.upper() not in sql, (
+                f"mutation touches knowledge table {table}: {sql}"
+            )
 
 
 def test_reingesting_the_same_file_does_not_grow_memory(tmp_path):

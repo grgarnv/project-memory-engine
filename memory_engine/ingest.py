@@ -107,6 +107,37 @@ class Ingestor:
     ) -> IngestResult:
         return self.ingest(load_artifact(path, artifact_type, recorded_at))
 
+    def ingest_source(self, source, resume: bool = True) -> "SourceRun":
+        """
+        Pull from a source and link everything new.
+
+        Resumable: the store holds a watermark per source, so a nightly run
+        reads only what appeared since the last one. Content addressing means
+        an overlap is harmless, so the watermark is an optimisation rather than
+        a correctness mechanism - which is why a rewritten history falling back
+        to a full read is safe.
+        """
+        from memory_engine.sources.base import SourceRun
+
+        run = SourceRun(source_id=source.source_id)
+        since = self.memory.get_watermark(source.source_id) if resume else ""
+
+        for artifact in source.fetch(since=since):
+            if self.memory.has_artifact(artifact.id):
+                run.skipped += 1
+            else:
+                self.ingest(artifact)
+                run.produced += 1
+            cursor = source.watermark_for(artifact)
+            if cursor:
+                run.new_watermark = cursor
+
+        if run.new_watermark:
+            self.memory.set_watermark(source.source_id, run.new_watermark)
+        if run.produced == 0 and run.skipped == 0:
+            run.notes.append("source returned nothing new")
+        return run
+
     def ingest_scenario(self, directory: str | Path) -> list[IngestResult]:
         """
         Ingest a scenario directory.

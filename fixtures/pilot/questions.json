@@ -1,0 +1,8 @@
+{
+  "notes": "Questions with expect:null are ones the project has no recorded position on. Answering them counts as WRONG, not as coverage - that is what stops the metric rewarding a system that confidently answers everything.",
+  "questions": [
+    {"ask": "asynchronous messaging", "expect": "Kafka"},
+    {"ask": "RabbitMQ", "expect": null},
+    {"ask": "rate limiting", "expect": null}
+  ]
+}

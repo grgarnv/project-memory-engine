@@ -95,6 +95,12 @@ CREATE TABLE IF NOT EXISTS conflicts (
     PRIMARY KEY (fact_a_id, fact_b_id, conflict_type)
 );
 
+CREATE TABLE IF NOT EXISTS ingestion_watermarks (
+    source     TEXT PRIMARY KEY,
+    cursor     TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS applied_artifacts (
     artifact_id TEXT PRIMARY KEY,
     recorded_at TEXT NOT NULL DEFAULT ''
@@ -233,10 +239,44 @@ class SQLiteProjectMemory(ProjectMemory):
     # -- BeliefReader -------------------------------------------------------
 
     def facts_mentioning(self, ref: str) -> list[PersistedFact]:
+        # UNION of two indexed lookups, not an OR. SQLite will not use
+        # idx_facts_subject and idx_facts_object for a single OR predicate; it
+        # falls back to a full scan, which is the difference between a pilot
+        # that answers in 20ms and one that answers in 4 seconds.
         rows = self.conn.execute(
-            "SELECT * FROM facts WHERE subject_ref = ? OR object_ref = ?", (ref, ref)
+            "SELECT * FROM facts WHERE subject_ref = ? "
+            "UNION SELECT * FROM facts WHERE object_ref = ?",
+            (ref, ref),
         ).fetchall()
         return [_fact(r) for r in rows]
+
+    def identity_closure(self, ref: str, max_size: int = 64) -> list[str]:
+        """
+        The full same_as equivalence class in one query.
+
+        The resolver's Python traversal issues one facts_mentioning per member;
+        at scale that is a query per alias per question. A recursive CTE walks
+        the whole closure in the database, and the WHERE on the recursive term
+        drops retracted merges without a second round trip.
+        """
+        rows = self.conn.execute(
+            """
+            WITH RECURSIVE klass(ref) AS (
+                SELECT ?
+                UNION
+                SELECT CASE WHEN f.subject_ref = k.ref THEN f.object_ref
+                            ELSE f.subject_ref END
+                FROM facts f
+                JOIN klass k
+                  ON (f.subject_ref = k.ref OR f.object_ref = k.ref)
+                WHERE f.predicate = 'same_as'
+                  AND f.id NOT IN (SELECT superseded_fact_id FROM supersessions)
+            )
+            SELECT ref FROM klass LIMIT ?
+            """,
+            (ref, max_size),
+        ).fetchall()
+        return [r["ref"] for r in rows]
 
     def get_fact(self, fact_id: str) -> PersistedFact | None:
         return self.get_persisted_fact_by_id(fact_id)
@@ -351,6 +391,28 @@ class SQLiteProjectMemory(ProjectMemory):
             (delta.artifact_id, delta.artifact_recorded_at),
         )
         self.conn.commit()
+
+    # -- incremental ingestion ---------------------------------------------
+
+    def get_watermark(self, source: str) -> str:
+        row = self.conn.execute(
+            "SELECT cursor FROM ingestion_watermarks WHERE source = ?", (source,)
+        ).fetchone()
+        return row["cursor"] if row else ""
+
+    def set_watermark(self, source: str, cursor: str, updated_at: str = "") -> None:
+        self.conn.execute(
+            "INSERT INTO ingestion_watermarks (source, cursor, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(source) DO UPDATE SET cursor = excluded.cursor, "
+            "updated_at = excluded.updated_at",
+            (source, cursor, updated_at),
+        )
+        self.conn.commit()
+
+    def has_artifact(self, artifact_id: str) -> bool:
+        return self.conn.execute(
+            "SELECT 1 FROM applied_artifacts WHERE artifact_id = ? LIMIT 1", (artifact_id,)
+        ).fetchone() is not None
 
     # -- diagnostics --------------------------------------------------------
 

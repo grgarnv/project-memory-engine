@@ -102,6 +102,7 @@ class ArtifactType(Enum):
     SLACK = "slack"
     DOCUMENT = "document"
     CODE = "code"
+    CORRECTION = "correction"
 
 
 # How much weight an artifact type carries as evidence. An ADR is a deliberate,
@@ -115,6 +116,10 @@ ARTIFACT_AUTHORITY: dict[ArtifactType, float] = {
     ArtifactType.DOCUMENT: 0.7,
     ArtifactType.SLACK: 0.3,
     ArtifactType.CODE: 0.9,
+    # A person saying "that is wrong" outranks every document, but only for
+    # retractions. A correction retires a fact; it does not get to make a
+    # decision on the project's behalf. See memory_engine/correction.py.
+    ArtifactType.CORRECTION: 1.2,
 }
 
 

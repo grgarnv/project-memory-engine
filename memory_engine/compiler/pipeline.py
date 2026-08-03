@@ -374,4 +374,23 @@ class MemoryCompiler:
             relations=relations,
             ontology_version=self.ontology_registry.version,
             compiler_version=COMPILER_VERSION,
+            metadata={"extractor": self._extractor_fingerprint()},
         )
+
+    def _extractor_fingerprint(self) -> dict:
+        """
+        What this compilation is reproducible *given*.
+
+        A rule-based extractor is fully described by the compiler version. An
+        LLM-backed one is not, and a stored compilation that does not record
+        which model and prompt produced it cannot be re-derived later.
+        """
+        fingerprint = getattr(self.statement_extractor, "fingerprint", None)
+        if fingerprint:
+            return dict(fingerprint)
+        inner = getattr(self.statement_extractor, "extractors", [])
+        for extractor in inner:
+            nested = getattr(extractor, "fingerprint", None)
+            if nested:
+                return dict(nested)
+        return {"extractor": type(self.statement_extractor).__name__}

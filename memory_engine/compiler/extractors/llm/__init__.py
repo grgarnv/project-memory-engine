@@ -1,3 +1,8 @@
+from memory_engine.compiler.extractors.llm.cached import (
+    PROMPT_VERSION,
+    CachedLLMStatementExtractor,
+    ExtractionCache,
+)
 from memory_engine.compiler.extractors.llm.providers import (
     GeminiProvider,
     GenericHTTPProvider,
@@ -14,4 +19,7 @@ __all__ = [
     "GenericHTTPProvider",
     "MockLLMProvider",
     "LLMStatementExtractor",
+    "CachedLLMStatementExtractor",
+    "ExtractionCache",
+    "PROMPT_VERSION",
 ]

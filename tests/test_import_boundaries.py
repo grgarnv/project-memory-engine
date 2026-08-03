@@ -113,11 +113,25 @@ def test_evaluation_does_not_import_the_extractors_it_grades(path):
     _assert_no_import(path, ("memory_engine.compiler.extractors",))
 
 
+@pytest.mark.parametrize("path", _modules("sources"), ids=lambda p: p.name)
+def test_sources_only_produce_artifacts(path):
+    """
+    A source converts a place into artifacts and stops. If it knew about the
+    linker or a store, every new source would have to re-learn ingestion.
+    """
+    _assert_no_import(path, (
+        "memory_engine.linker",
+        "memory_engine.store",
+        "memory_engine.resolve",
+        "memory_engine.memory",
+    ))
+
+
 def test_llm_is_quarantined_to_the_compiler():
     """
     Determinism below the compiler is only meaningful if nothing below it can
     call a model. RFC 003 non-goal 2, enforced.
     """
-    for layer in ("linker", "store", "resolve", "memory", "apps", "eval"):
+    for layer in ("linker", "store", "resolve", "memory", "apps", "eval", "sources"):
         for path in _modules(layer):
             _assert_no_import(path, ("memory_engine.compiler.extractors.llm",))

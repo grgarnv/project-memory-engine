@@ -76,22 +76,34 @@ Added after building a resolver falsified four write-side assumptions. See
       time, never a rewrite. `OntologyMigrator.plan()` reports impact; there is
       deliberately no `apply()`, because facts are never rewritten.
 
-## Phase 5 — what is genuinely left
+## Phase 5 — deployment path (done, except where noted)
 
-- [ ] **An independently labelled corpus.** Still the highest-value item, and the
-      one thing that cannot be done from inside this repository: the labels and
-      the extractor share an author. Needs ADRs and PRs from a project that has
-      never heard of this engine, labelled by someone who has not read
-      `patterns.py`. Until then the numbers show regression, not capability.
-- [ ] **Extraction beyond surface patterns.** The `hard-realistic` case scores
-      25% reachable recall. Conversational decisions ("we're going with X"),
-      rejections in subordinate clauses, and cross-sentence coreference are all
-      out of reach of a pattern table. The `StatementExtractor` interface already
-      accepts an LLM implementation; what is missing is the caching and version
-      pinning that would keep compilation reproducible under RFC 004 §3.
-- [ ] **Scale.** Every store query is a linear scan over facts. Fine at 300
-      facts, not at 300,000. Indices exist in SQLite but `facts_mentioning` and
-      the identity closure will need work before a real repository's history.
+- [x] **Real ingestion.** `GitSource`, `FilesystemSource`, `GitHubSource` (with
+      review comments, where the reasoning actually lives). Incremental by
+      watermark; a second run does no work.
+- [x] **Correction loop.** A human correction is an artifact with an author, a
+      date, and the highest authority in the table. Retires a fact through
+      ordinary supersession; deletes nothing.
+- [x] **Scale.** Indexed `UNION` lookups and a recursive-CTE identity closure.
+      Sub-millisecond at 40k facts, asserted by a test.
+- [x] **LLM extraction architecture.** `CachedLLMStatementExtractor` pins and
+      caches on `(text, model, prompt version, temperature, provider)`, keeping
+      RFC 004 §3 true. A model upgrade is a new compilation, not a rewrite.
+- [x] **Pilot interface and measurement.** MCP server (`pme serve`) and
+      `pme pilot`, which counts wrong answers separately from declined ones.
+
+## Phase 6 — what cannot be finished from inside this repository
+
+- [ ] **The answerability check.** 30 real ADRs, 20 real questions, hand-checked.
+      Two days, needs your repository, and it is the only item that can
+      invalidate everything above.
+- [ ] **Independently labelled extraction corpus.** The labels and the extractor
+      share an author, so current numbers show absence of regression rather than
+      capability. Structural, not a matter of remaining effort.
+- [ ] **Extraction beyond surface patterns.** `hard-realistic` sits at 25%
+      reachable recall. Conversational decisions and cross-sentence coreference
+      need the LLM extractor the architecture now supports — the wiring is done,
+      the validation is not.
 
 ## Phase 4 — applications
 

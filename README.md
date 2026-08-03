@@ -45,7 +45,7 @@ the architecture around it is the point.
 ```bash
 git clone <this repo> && cd project-memory-engine
 pip install -e ".[dev]"
-pytest                                     # 215 tests, ~2s
+pytest                                     # 247 tests, ~4s
 
 pme ingest fixtures/scenarios/oauth2-supersedes-jwt --ask "service-to-service authentication"
 pme compile fixtures/artifacts/sample_adr.md
@@ -243,6 +243,23 @@ tests/
 ```
 
 ---
+
+## Running it on a real project
+
+```bash
+pme pull github://your-org/your-repo --db project.db   # PRs, issues, review threads
+pme pull git://.                     --db project.db   # commit messages
+pme pull docs/adr                    --db project.db   # ADRs
+
+pme serve --db project.db                              # MCP, six tools
+pme pilot questions.json --db project.db               # measure the pilot
+pme correct fact_a1b2 --author you --reason "never adopted" --db project.db
+```
+
+Incremental: each source keeps a watermark, so a nightly run reads only what is
+new. Sub-millisecond queries at 40k facts. Corrections are append-only artifacts
+that retire a fact without deleting anything. Full guide in
+`docs/deployment.md`.
 
 ## Extraction quality
 

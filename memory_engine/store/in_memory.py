@@ -37,6 +37,8 @@ class InMemoryProjectMemory(ProjectMemory):
         self._supersession_keys: set[tuple[str, str]] = set()
         self._conflict_keys: set[tuple[str, ...]] = set()
         self.applied_artifacts: list[str] = []
+        self._artifact_ids: set[str] = set()
+        self.watermarks: dict[str, str] = {}
 
     # -- MemoryReader -------------------------------------------------------
 
@@ -121,6 +123,36 @@ class InMemoryProjectMemory(ProjectMemory):
             return f"<{ref[len(ARTIFACT_REF_PREFIX):][:12]}>"
         return ref
 
+    def identity_closure(self, ref: str, max_size: int = 64) -> list[str]:
+        members = {ref}
+        frontier = [ref]
+        while frontier and len(members) < max_size:
+            current = frontier.pop()
+            for fact in self.facts.values():
+                if fact.predicate is not Predicate.SAME_AS:
+                    continue
+                if fact.id in self.superseded_fact_ids:
+                    continue
+                if current not in (fact.subject_ref, fact.object_ref):
+                    continue
+                other = (fact.object_ref if fact.subject_ref == current
+                         else fact.subject_ref)
+                if other not in members:
+                    members.add(other)
+                    frontier.append(other)
+        return sorted(members)
+
+    # -- incremental ingestion ---------------------------------------------
+
+    def get_watermark(self, source: str) -> str:
+        return self.watermarks.get(source, "")
+
+    def set_watermark(self, source: str, cursor: str, updated_at: str = "") -> None:
+        self.watermarks[source] = cursor
+
+    def has_artifact(self, artifact_id: str) -> bool:
+        return artifact_id in self._artifact_ids
+
     # -- MemoryWriter -------------------------------------------------------
 
     def apply_delta(self, delta: MemoryDelta) -> None:
@@ -157,7 +189,8 @@ class InMemoryProjectMemory(ProjectMemory):
                 self._conflict_keys.add(key)
                 self.conflicts.append(conflict)
 
-        if delta.artifact_id not in self.applied_artifacts:
+        if delta.artifact_id not in self._artifact_ids:
+            self._artifact_ids.add(delta.artifact_id)
             self.applied_artifacts.append(delta.artifact_id)
 
     # -- diagnostics --------------------------------------------------------

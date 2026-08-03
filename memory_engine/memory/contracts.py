@@ -101,12 +101,43 @@ class BeliefReader(ABC):
         ...
 
     @abstractmethod
+    def identity_closure(self, ref: str, max_size: int = 64) -> list[str]:
+        """
+        Every ref asserted to be the same concept as this one, in one call.
+
+        On the read path this is asked once per question; doing it as a Python
+        loop over facts_mentioning is a query per alias.
+        """
+
+    @abstractmethod
     def resolve_ref(self, name: str) -> str | None:
         """Map a human-typed name to a global entity ID, if one is bound."""
 
     @abstractmethod
     def label_for_ref(self, ref: str) -> str:
         """Human-readable label for an entity ID, artifact ref, or literal."""
+
+
+class IncrementalSource(ABC):
+    """
+    Support for ingesting a source repeatedly without redoing all the work.
+
+    Artifact IDs are content-addressed, so re-ingesting is already SAFE - it is
+    just slow. These let a run skip what it has already seen instead of
+    recomputing forty thousand commits nightly.
+    """
+
+    @abstractmethod
+    def get_watermark(self, source: str) -> str:
+        ...
+
+    @abstractmethod
+    def set_watermark(self, source: str, cursor: str, updated_at: str = "") -> None:
+        ...
+
+    @abstractmethod
+    def has_artifact(self, artifact_id: str) -> bool:
+        ...
 
 
 class MemoryWriter(ABC):
@@ -117,7 +148,7 @@ class MemoryWriter(ABC):
         ...
 
 
-class ProjectMemory(MemoryReader, BeliefReader, MemoryWriter, ABC):
+class ProjectMemory(MemoryReader, BeliefReader, MemoryWriter, IncrementalSource, ABC):
     """A complete store. Both directions plus writes."""
 
     @abstractmethod
