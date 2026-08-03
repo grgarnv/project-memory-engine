@@ -61,17 +61,37 @@ Added after building a resolver falsified four write-side assumptions. See
 - [x] **Richer extraction.** Nine further relational patterns, sentence-level
       matching, markdown-aware chunking, negation as constraint.
 
-## Phase 3.5 — next, and now evidence-driven
+## Phase 3.5 — done
 
-- [ ] **Compound-sentence splitting.** "A uses X, and B uses X" yields one fact.
-      Named by the eval as a concrete miss, not guessed at.
-- [ ] **Verb inflection in patterns.** `must not use` misses because the pattern
-      requires `uses`.
-- [ ] **An independently labelled corpus.** Both current corpora were written by
-      whoever wrote the extractor. Until that changes the numbers show
-      regression, not capability. This is the highest-value item on the list.
-- [ ] **Ontology evolution.** V1 → V2 migration semantics. Deferred deliberately:
-      the eval will show which predicates are actually missing.
+- [x] **Compound-sentence splitting.** Clause-level matching, conservative about
+      what counts as a coordinator.
+- [x] **Verb inflection in patterns.** use/uses/used/using, depend/depends/upon.
+- [x] **Determiner-based concept detection.** A grammatical signal instead of a
+      word list: "the storefront" marks storefront as a named thing. Closed
+      vocabularies were failing on every project that names things differently.
+- [x] **A third, adversarial eval corpus** (`hard-realistic`) with conversational
+      decisions, buried rejections, and an unimplemented action item that must
+      NOT become a fact. Scores badly on purpose.
+- [x] **Ontology evolution.** A rename is a declared equivalence applied at read
+      time, never a rewrite. `OntologyMigrator.plan()` reports impact; there is
+      deliberately no `apply()`, because facts are never rewritten.
+
+## Phase 5 — what is genuinely left
+
+- [ ] **An independently labelled corpus.** Still the highest-value item, and the
+      one thing that cannot be done from inside this repository: the labels and
+      the extractor share an author. Needs ADRs and PRs from a project that has
+      never heard of this engine, labelled by someone who has not read
+      `patterns.py`. Until then the numbers show regression, not capability.
+- [ ] **Extraction beyond surface patterns.** The `hard-realistic` case scores
+      25% reachable recall. Conversational decisions ("we're going with X"),
+      rejections in subordinate clauses, and cross-sentence coreference are all
+      out of reach of a pattern table. The `StatementExtractor` interface already
+      accepts an LLM implementation; what is missing is the caching and version
+      pinning that would keep compilation reproducible under RFC 004 §3.
+- [ ] **Scale.** Every store query is a linear scan over facts. Fine at 300
+      facts, not at 300,000. Indices exist in SQLite but `facts_mentioning` and
+      the identity closure will need work before a real repository's history.
 
 ## Phase 4 — applications
 

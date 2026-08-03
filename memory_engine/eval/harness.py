@@ -46,6 +46,8 @@ class EvalCase:
     labels: list[Triple]
     notes: str = ""
     unreachable: list[Triple] = field(default_factory=list)
+    forbidden: list[Triple] = field(default_factory=list)
+    floor: dict = field(default_factory=lambda: {"precision": 0.85, "reachable_recall": 0.60})
 
     @property
     def reachable_labels(self) -> list[Triple]:
@@ -92,6 +94,12 @@ class EvalResult:
     matched: list[Triple] = field(default_factory=list)
     spurious: list[Triple] = field(default_factory=list)
     missed: list[Triple] = field(default_factory=list)
+    violations: list[Triple] = field(default_factory=list)
+
+    @property
+    def is_clean(self) -> bool:
+        """No forbidden triple was produced. This is pass/fail, not a score."""
+        return not self.violations
 
 
 def load_case(directory: str | Path) -> EvalCase:
@@ -103,6 +111,8 @@ def load_case(directory: str | Path) -> EvalCase:
         labels=[tuple(t) for t in spec["labels"]],
         notes=spec.get("notes", ""),
         unreachable=[tuple(t) for t in spec.get("known_unreachable", [])],
+        forbidden=[tuple(t) for t in spec.get("must_not_extract", [])],
+        floor=spec.get("floor", {"precision": 0.85, "reachable_recall": 0.60}),
     )
 
 
@@ -152,8 +162,12 @@ def run_case(case: EvalCase) -> EvalResult:
         false_negatives=len(reachable_set - pred_set),
     )
 
+    forbidden_set = {_norm(t) for t in case.forbidden}
+    violations = sorted(pred_set & forbidden_set)
+
     return EvalResult(
         case=case,
+        violations=[t for t in violations],
         predicted=predicted,
         overall=overall,
         reachable=reachable,
@@ -185,6 +199,9 @@ def format_report(results: list[EvalResult]) -> str:
         lines.append(
             f"  reachable  P={r.precision:.0%}  R={r.recall:.0%}  F1={r.f1:.0%}"
         )
+        if result.violations:
+            lines.append("  FORBIDDEN TRIPLES PRODUCED:")
+            lines.extend(f"    ! {s0} --{p}--> {o}" for s0, p, o in result.violations)
         if result.spurious:
             lines.append("  spurious:")
             lines.extend(f"    - {s0} --{p}--> {o}" for s0, p, o in result.spurious)

@@ -1,0 +1,74 @@
+{
+  "name": "hard-realistic",
+  "notes": "Written to be hard on purpose. Decisions are stated conversationally ('we're going with'), rejections are buried in subordinate clauses, one assertion is explicitly negative, and one is an unimplemented action item that must NOT become a fact. Low recall here is the honest signal; this case exists to stop the suite reporting a saturated 100%.",
+  "labels": [
+    [
+      "product search",
+      "selected",
+      "Elasticsearch"
+    ],
+    [
+      "product search",
+      "rejected",
+      "Typesense"
+    ],
+    [
+      "indexer",
+      "uses",
+      "Elasticsearch"
+    ],
+    [
+      "indexer",
+      "depends_on",
+      "catalogue service"
+    ],
+    [
+      "catalogue service",
+      "prohibits",
+      "Elasticsearch"
+    ],
+    [
+      "storefront",
+      "uses",
+      "Elasticsearch"
+    ],
+    [
+      "storefront",
+      "depends_on",
+      "Elasticsearch"
+    ]
+  ],
+  "known_unreachable": [
+    [
+      "product search",
+      "selected",
+      "Elasticsearch"
+    ],
+    [
+      "product search",
+      "rejected",
+      "Typesense"
+    ],
+    [
+      "indexer",
+      "depends_on",
+      "catalogue service"
+    ]
+  ],
+  "must_not_extract": [
+    [
+      "storefront",
+      "uses",
+      "Postgres"
+    ],
+    [
+      "storefront",
+      "depends_on",
+      "Postgres"
+    ]
+  ],
+  "floor": {
+    "precision": 0.8,
+    "reachable_recall": 0.1
+  }
+}

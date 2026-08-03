@@ -1,0 +1,9 @@
+{
+  "name": "hard-realistic",
+  "artifacts": [
+    {"file": "adr-102-search.md",                "type": "adr",          "recorded_at": "2024-03-05"},
+    {"file": "rfc-31-indexing.md",               "type": "document",     "recorded_at": "2024-04-18"},
+    {"file": "pr-2201-facets.md",                "type": "pull_request", "recorded_at": "2024-07-22"},
+    {"file": "incident-2024-11-postmortem.md",   "type": "document",     "recorded_at": "2024-11-12"}
+  ]
+}

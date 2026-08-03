@@ -23,6 +23,14 @@ from memory_engine.resolve import BeliefResolver, ProjectQueries, explain, rende
 from memory_engine.store import InMemoryProjectMemory, SQLiteProjectMemory
 
 
+def _all_facts(memory) -> list:
+    """Facts from any store, without assuming an in-memory dict."""
+    if hasattr(memory, "facts"):
+        return list(memory.facts.values())
+    rows = memory.conn.execute("SELECT id FROM facts").fetchall()
+    return [memory.get_fact(r["id"]) for r in rows]
+
+
 def _open_memory(db: str | None) -> ProjectMemory:
     return SQLiteProjectMemory(db) if db else InMemoryProjectMemory()
 
@@ -134,13 +142,53 @@ def cmd_dependents(args: argparse.Namespace) -> int:
 
 def cmd_health(args: argparse.Namespace) -> int:
     memory = _open_memory(args.db)
-    report = ProjectQueries(memory).health(list(memory.facts.values())
-                                           if hasattr(memory, "facts") else [])
+    report = ProjectQueries(memory).health(_all_facts(memory))
     for field_name in ("total_facts", "active_facts", "undated_facts",
                        "single_source_facts", "ingestion_ordered_supersessions",
                        "open_conflicts", "unresolved_literals"):
         print(f"{field_name:<34} {getattr(report, field_name)}")
     for note in report.notes:
+        print(f"  ! {note}")
+    return 0
+
+
+def cmd_brief(args: argparse.Namespace) -> int:
+    from memory_engine.apps import brief
+    memory = _open_memory(args.db)
+    print(brief(memory, _all_facts(memory)).render())
+    return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    from memory_engine.apps import ComplianceEngine
+    from memory_engine.ontology import Predicate
+
+    memory = _open_memory(args.db)
+    proposed = []
+    for item in args.relationship:
+        try:
+            subject, predicate, obj = [p.strip() for p in item.split("|")]
+        except ValueError:
+            print(f"Expected 'subject|predicate|object', got {item!r}")
+            return 2
+        proposed.append((subject, Predicate(predicate), obj))
+
+    report = ComplianceEngine(memory).check(proposed)
+    print(report.summary())
+    return 0 if report.is_compliant else 1
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    from memory_engine.ontology import OntologyVersion
+    from memory_engine.ontology_migration import OntologyMigrator
+
+    memory = _open_memory(args.db)
+    impact = OntologyMigrator().plan(_all_facts(memory), OntologyVersion(args.to_version))
+    print(f"target ontology   {impact.target_version.value}")
+    print(f"affected facts    {impact.affected_facts}")
+    for change, count in sorted(impact.affected_predicates.items()):
+        print(f"  {change}: {count}")
+    for note in impact.notes:
         print(f"  ! {note}")
     return 0
 
@@ -197,6 +245,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_health = sub.add_parser("health", help="where this knowledge base is weak")
     p_health.add_argument("--db")
     p_health.set_defaults(func=cmd_health)
+
+    p_brief = sub.add_parser("brief", help="onboarding overview from accumulated memory")
+    p_brief.add_argument("--db")
+    p_brief.set_defaults(func=cmd_brief)
+
+    p_check = sub.add_parser("check", help="check relationships against recorded constraints")
+    p_check.add_argument("relationship", nargs="+",
+                         help="'subject|predicate|object', e.g. 'order service|uses|RabbitMQ'")
+    p_check.add_argument("--db")
+    p_check.set_defaults(func=cmd_check)
+
+    p_migrate = sub.add_parser("migrate", help="report the impact of an ontology version bump")
+    p_migrate.add_argument("--to", dest="to_version", default="1.0")
+    p_migrate.add_argument("--db")
+    p_migrate.set_defaults(func=cmd_migrate)
 
     p_eval = sub.add_parser("eval", help="extraction precision and recall against labels")
     p_eval.add_argument("path", nargs="?", default="fixtures/eval")

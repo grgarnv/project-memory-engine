@@ -13,12 +13,13 @@ from tests.conftest import REPO_ROOT
 
 EVAL_ROOT = REPO_ROOT / "fixtures" / "eval"
 
-# Floors, not targets. They exist to catch regression, and they are set below
-# current numbers so that ordinary tuning does not require editing the test.
-# Raising them to match whatever the extractor currently scores would make the
-# suite a mirror rather than a check.
-MIN_PRECISION = 0.85
-MIN_RECALL = 0.60
+# Floors live in each case's labels.json, not here, because cases differ in
+# difficulty on purpose. `hard-realistic` carries a deliberately low recall floor:
+# it exists to stop the suite reporting a saturated 100%, and holding it to the
+# same bar as an easy case would only encourage deleting it.
+#
+# Every floor is set BELOW current numbers. Raising them to match whatever the
+# extractor scores today would make the suite agree with the code by construction.
 
 
 def test_cases_are_discovered():
@@ -36,8 +37,9 @@ def test_labels_include_assertions_the_extractor_cannot_reach():
 @pytest.mark.parametrize("case", load_cases(EVAL_ROOT), ids=lambda c: c.name)
 def test_case_meets_the_floor(case):
     result = run_case(case)
-    assert result.overall.precision >= MIN_PRECISION, result.spurious
-    assert result.reachable.recall >= MIN_RECALL, result.missed
+    assert result.overall.precision >= case.floor["precision"], result.spurious
+    assert result.reachable.recall >= case.floor["reachable_recall"], result.missed
+    assert result.is_clean, f"produced forbidden triples: {result.violations}"
 
 
 def test_aggregate_is_reported():

@@ -89,11 +89,35 @@ def test_schema_depends_on_nothing(path):
     ))
 
 
+@pytest.mark.parametrize("path", _modules("apps"), ids=lambda p: p.name)
+def test_applications_go_through_the_resolver(path):
+    """
+    Applications are consumers, not infrastructure. If one needs a fact the
+    resolver cannot produce, the gap belongs in the read path where every
+    application benefits - not in the application.
+    """
+    _assert_no_import(path, (
+        "memory_engine.linker",
+        "memory_engine.store",
+        "memory_engine.compiler",
+        "memory_engine.ingest",
+    ))
+
+
+@pytest.mark.parametrize("path", _modules("eval"), ids=lambda p: p.name)
+def test_evaluation_does_not_import_the_extractors_it_grades(path):
+    """
+    An evaluator that imports the pattern table can be tuned to agree with it.
+    The harness sees artifacts in and facts out, like any other caller.
+    """
+    _assert_no_import(path, ("memory_engine.compiler.extractors",))
+
+
 def test_llm_is_quarantined_to_the_compiler():
     """
     Determinism below the compiler is only meaningful if nothing below it can
     call a model. RFC 003 non-goal 2, enforced.
     """
-    for layer in ("linker", "store", "resolve", "memory"):
+    for layer in ("linker", "store", "resolve", "memory", "apps", "eval"):
         for path in _modules(layer):
             _assert_no_import(path, ("memory_engine.compiler.extractors.llm",))

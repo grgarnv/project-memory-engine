@@ -28,9 +28,21 @@ _TAIL_MARKERS = (
     " across ", " because ", " since ", " which ", " that ", " while ",
     " in order to ", " so that ", " when ", " unless ", " rather than ",
     " instead of ", " as part of ", " for all ", " on every ",
+    " after ", " before ", " until ", " once ", " during ", " throughout ",
 )
 
 _LEADING_ARTICLES = re.compile(r"^(?:the|a|an|our|its|their)\s+", re.IGNORECASE)
+
+# Subordinating conjunctions sit in front of a real subject: "Because the
+# storefront depends on X" captures "Because the storefront". Stripped rather
+# than rejected, because the phrase after them is a genuine concept. Filler that
+# is NOT followed by a concept still fails the gate afterwards - "so neither
+# side" strips to "neither side" and is rejected on "neither".
+_LEADING_SUBORDINATORS = re.compile(
+    r"^(?:because|since|while|although|though|whereas|if|when|after|before|"
+    r"unless|until|as|so|and|but|that|which)\s+",
+    re.IGNORECASE,
+)
 
 # Modals and adverbs get swallowed into a capture because they sit between the
 # subject and the verb: "The compiler never imports" captures "compiler never".
@@ -52,6 +64,12 @@ _STOP_PHRASES = {
 }
 
 
+def has_determiner(raw: str) -> bool:
+    """Was this phrase written as a referring expression - "the X", "an X"?"""
+    stripped = _LEADING_SUBORDINATORS.sub("", " ".join(raw.split())).strip()
+    return bool(_LEADING_ARTICLES.match(stripped))
+
+
 def normalize_phrase(raw: str) -> str:
     """
     Deterministic phrase normalization. Documented and total: same input always
@@ -64,6 +82,7 @@ def normalize_phrase(raw: str) -> str:
         if idx != -1:
             text = text[:idx]
             lowered = text.lower()
+    text = _LEADING_SUBORDINATORS.sub("", text).strip()
     text = _LEADING_ARTICLES.sub("", text).strip()
     text = text.strip(" .,:;\"'()[]")
 
@@ -97,6 +116,8 @@ _LEADING_STOPWORDS = frozenset({
     "that", "which", "who", "whom", "whose", "what", "when", "where",
     "if", "unless", "because", "since", "while", "although", "though",
     "neither", "either", "nor", "not", "no", "none", "any", "some",
+    "nothing", "something", "anything", "everything", "nobody", "everyone",
+    "someone", "anyone", "everybody", "much", "many", "few", "several",
     "this", "these", "those", "it", "they", "them", "he", "she", "we", "you",
     "each", "every", "both", "all", "such", "there", "here", "also",
     "only", "just", "even", "still", "yet", "now", "never", "always",
@@ -122,24 +143,44 @@ _DOMAIN_HEADS = frozenset({
 })
 
 
-def _is_concept(phrase: str) -> bool:
+# Single lowercase words that a determiner does not rescue: "the other", "the
+# rest", "the same". Referring expressions grammatically, but they refer to
+# something already named rather than naming anything.
+_NON_CONCEPTS = frozenset({
+    "other", "others", "one", "ones", "thing", "things", "way", "ways",
+    "case", "cases", "point", "part", "parts", "rest", "same", "latter",
+    "former", "above", "below", "following", "result", "results", "reason",
+    "time", "times", "end", "beginning", "whole", "window",
+})
+
+
+def _is_concept(phrase: str, determined: bool = False) -> bool:
     """
     Does this phrase plausibly name a project concept?
 
-    Three ways to qualify:
+    Four ways to qualify:
 
       1. It looks technical - an uppercase letter or a digit somewhere.
       2. Its head noun is domain vocabulary.
       3. It is a multi-word phrase containing no grammatical filler.
+      4. It was written with a determiner - "the storefront", "an indexer".
 
-    Rule 3 exists because rules 1 and 2 are a closed vocabulary, and a closed
-    vocabulary silently fails on every project that names things differently.
-    The first version of this gate had no rule 3 and dropped "web tier" - it
-    scored 100% precision and 38% recall, with every miss being one unlisted
-    head noun. Evaluation caught that; reading the output would not have.
+    Rules 1 and 2 are a closed vocabulary, and a closed vocabulary silently
+    fails on every project that names things differently. Each later rule was
+    added because evaluation caught the previous set failing:
 
-    Filler is still rejected anywhere in the phrase, not only at the front, so
-    "some other thing" and "no corpus" do not qualify on length alone.
+      - without rule 3, "web tier" was dropped: 100% precision, 38% recall,
+        every miss one unlisted head noun
+      - without rule 4, "storefront" was dropped - a single lowercase word that
+        no list will ever reliably contain
+
+    Rule 4 is a grammatical signal rather than a vocabulary: writing "the X"
+    marks X as a thing the reader is expected to already identify. That is
+    close to the definition of a named concept, and unlike a word list it does
+    not need maintaining per project.
+
+    Filler is still rejected anywhere in the phrase, and a determiner does not
+    rescue a word that refers without naming ("the other", "the rest").
     """
     tokens = phrase.split()
     if not tokens:
@@ -149,9 +190,13 @@ def _is_concept(phrase: str) -> bool:
         return False
     if any(c.isupper() or c.isdigit() for c in phrase):
         return True
+    if len(tokens) == 1 and lowered[0] in _NON_CONCEPTS:
+        return False
     if lowered[-1] in _DOMAIN_HEADS:
         return True
-    return len(tokens) >= 2 and not any(t in _LEADING_STOPWORDS for t in lowered)
+    if len(tokens) >= 2 and not any(t in _LEADING_STOPWORDS for t in lowered):
+        return True
+    return determined and not any(t in _LEADING_STOPWORDS for t in lowered)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +226,31 @@ def split_sentences(text: str) -> list[str]:
         if part:
             restored.append(part)
     return restored
+
+
+# Coordinated clauses. "A uses X, and B uses Y" is two assertions; matching the
+# sentence whole yields one, because the first match consumes the span. Named by
+# the evaluation as a concrete miss rather than guessed at.
+_CLAUSE_SPLIT = re.compile(
+    r",\s+(?:and|but|while|whereas)\s+|"
+    r";\s+|"
+    r"\s+(?:and|but)\s+(?=(?:the|a|an|our|its|their)\s+\w)",
+    re.IGNORECASE,
+)
+
+
+def split_clauses(sentence: str) -> list[str]:
+    """
+    Split a sentence into coordinated clauses.
+
+    Conservative on purpose: only splits on an explicit coordinator, and only
+    before a determiner when the coordinator is a bare "and", so "salt and
+    pepper" style noun coordination stays intact. Negation is evaluated on the
+    whole sentence, not per clause, because "the linker never calls an LLM or
+    imports the store" negates both halves.
+    """
+    parts = [p.strip() for p in _CLAUSE_SPLIT.split(sentence)]
+    return [p for p in parts if p] or [sentence]
 
 
 _NEGATION = re.compile(
@@ -254,17 +324,17 @@ RELATIONAL_PATTERNS: tuple[RelationalPattern, ...] = (
     ),
     RelationalPattern(
         "depends_on",
-        re.compile(rf"{_P}\s+depends?\s+on\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
+        re.compile(rf"{_P}\s+depends?\s+(?:up)?on\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
         "depends_on", 1, 2,
     ),
     RelationalPattern(
         "requires",
-        re.compile(rf"{_P}\s+requires?\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
+        re.compile(rf"{_P}\s+require[sd]?\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
         "requires", 1, 2,
     ),
     RelationalPattern(
         "uses",
-        re.compile(rf"{_P}\s+uses\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
+        re.compile(rf"{_P}\s+(?:uses|use|used|using)\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
         "uses", 1, 2,
     ),
     RelationalPattern(
@@ -289,7 +359,7 @@ RELATIONAL_PATTERNS: tuple[RelationalPattern, ...] = (
     ),
     RelationalPattern(
         "calls",
-        re.compile(rf"{_P}\s+calls\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
+        re.compile(rf"{_P}\s+(?:calls|call)\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
         "calls", 1, 2,
     ),
     RelationalPattern(
@@ -312,6 +382,12 @@ RELATIONAL_PATTERNS: tuple[RelationalPattern, ...] = (
         "replaces",
         re.compile(rf"{_P}\s+(?:now\s+)?replaces\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
         "replaced_by", 2, 1,
+    ),
+    RelationalPattern(
+        "port_to",
+        re.compile(rf"\b(?:port|ports|ported|porting|switch|switched|move[sd]?)\s+"
+                   rf"{_P}\s+(?:to|onto)\s+{_P}(?:[\.,;]|$)", re.IGNORECASE),
+        "uses", 1, 2,
     ),
     RelationalPattern(
         "aka",
@@ -361,14 +437,18 @@ def find_relational_matches(text: str) -> list[PatternMatch]:
     for sentence in split_sentences(text):
         negated = is_negated(sentence)
 
-        for pattern in RELATIONAL_PATTERNS:
-            for match in pattern.regex.finditer(sentence):
-                subject = normalize_phrase(match.group(pattern.subject_group))
-                obj = normalize_phrase(match.group(pattern.object_group))
+        for clause in split_clauses(sentence):
+          for pattern in RELATIONAL_PATTERNS:
+            for match in pattern.regex.finditer(clause):
+                raw_subject = match.group(pattern.subject_group)
+                raw_object = match.group(pattern.object_group)
+                subject = normalize_phrase(raw_subject)
+                obj = normalize_phrase(raw_object)
 
                 if not (is_usable_phrase(subject) and is_usable_phrase(obj)):
                     continue
-                if not (_is_concept(subject) and _is_concept(obj)):
+                if not (_is_concept(subject, has_determiner(raw_subject))
+                        and _is_concept(obj, has_determiner(raw_object))):
                     continue
                 if subject.lower() == obj.lower():
                     continue

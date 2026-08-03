@@ -45,7 +45,7 @@ the architecture around it is the point.
 ```bash
 git clone <this repo> && cd project-memory-engine
 pip install -e ".[dev]"
-pytest                                     # 191 tests, ~2s
+pytest                                     # 215 tests, ~2s
 
 pme ingest fixtures/scenarios/oauth2-supersedes-jwt --ask "service-to-service authentication"
 pme compile fixtures/artifacts/sample_adr.md
@@ -60,6 +60,9 @@ pme explain "asynchronous messaging" --db project.db
 pme timeline RabbitMQ      --db project.db
 pme dependents Kafka       --db project.db
 pme health                 --db project.db
+pme brief                  --db project.db   # onboarding overview
+pme check "order service|uses|RabbitMQ" --db project.db
+pme migrate --to 1.0       --db project.db   # ontology impact, dry by construction
 ```
 
 ```
@@ -140,6 +143,8 @@ given the same compiler and ontology version.
 | `linker` | IR → memory delta, stateful | `ir`, `memory` |
 | `store` | in-memory and SQLite implementations | `memory` |
 | `resolve` | memory → belief | `memory` |
+| `apps` | compliance, onboarding | `resolve` |
+| `eval` | extraction scoring | `ingest`, `store` |
 | `ingest` | the wiring | all |
 
 The compiler never imports the linker. The resolver never imports either. That is
@@ -247,8 +252,14 @@ against triples labelled from the documents:
 | Case | Precision | Recall (reachable) | F1 |
 |---|---|---|---|
 | auth-migration | 100% | 100% | 100% |
-| queue-consolidation | 100% | 75% | 86% |
-| **total** | **100%** | **87%** | **93%** |
+| queue-consolidation | 100% | 100% | 100% |
+| hard-realistic | 100% | 25% | 40% |
+| **total** | **100%** | **84%** | **91%** |
+
+`hard-realistic` is adversarial on purpose — conversational decisions, rejections
+buried in subordinate clauses, and an unimplemented action item that must *not*
+become a fact. It scores badly, and it exists so the suite cannot report a
+saturated 100%.
 
 Labels deliberately include assertions the pattern table cannot reach, so recall
 reports the real gap rather than a flattering one. The harness earned its place

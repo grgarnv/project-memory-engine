@@ -2,16 +2,56 @@
   "name": "auth-migration",
   "notes": "Labels written from the documents, not from engine output. Includes assertions the current pattern table cannot reach, so recall reports the real gap.",
   "labels": [
-    ["session storage", "selected", "Redis"],
-    ["session storage", "selected", "PostgreSQL"],
-    ["web tier", "depends_on", "Redis"],
-    ["web tier", "depends_on", "PostgreSQL"],
-    ["session store", "uses", "PostgreSQL"],
-    ["web tier", "same_as", "frontend service"],
-    ["web tier", "prohibits", "Redis"],
-    ["web tier", "removes", "Redis client"]
+    [
+      "session storage",
+      "selected",
+      "Redis"
+    ],
+    [
+      "session storage",
+      "selected",
+      "PostgreSQL"
+    ],
+    [
+      "web tier",
+      "depends_on",
+      "Redis"
+    ],
+    [
+      "web tier",
+      "depends_on",
+      "PostgreSQL"
+    ],
+    [
+      "session store",
+      "uses",
+      "PostgreSQL"
+    ],
+    [
+      "web tier",
+      "same_as",
+      "frontend service"
+    ],
+    [
+      "web tier",
+      "prohibits",
+      "Redis"
+    ],
+    [
+      "web tier",
+      "removes",
+      "Redis client"
+    ]
   ],
   "known_unreachable": [
-    ["web tier", "removes", "Redis client"]
-  ]
+    [
+      "web tier",
+      "removes",
+      "Redis client"
+    ]
+  ],
+  "floor": {
+    "precision": 0.85,
+    "reachable_recall": 0.6
+  }
 }
