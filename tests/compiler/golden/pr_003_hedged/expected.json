@@ -1,0 +1,12 @@
+{
+  "statements": [
+    {
+      "subject": "Current Change",
+      "predicate": "description",
+      "target": "This should improve performance."
+    }
+  ],
+  "entities": [],
+  "fact_count": 0,
+  "relation_count": 0
+}

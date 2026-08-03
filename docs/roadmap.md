@@ -1,62 +1,80 @@
 # Roadmap
 
-## Phase 0 - done
+## Phase 0 — done
 
 - [x] Compiler pipeline skeleton (`observe -> segment -> extract_*`)
 - [x] Rule-based statement extractor
-- [x] Naive entity extractor (fixed patterns - see note in `pipeline.py`)
-- [x] Golden tests (`tests/golden/pr_001`, `tests/golden/pr_002`)
+- [x] Entity extractor
+- [x] Golden IR tests
 
-## Phase 1 - finish the prototype (done except LLM/general-NER items)
+## Phase 1 — done
 
-- [x] Wire `EntityPass`/`SemanticPass` equivalents into `MemoryCompiler.compile()`
-      (nothing runs outside of `compile()` now)
-- [x] Statement -> Claim -> Fact as a real filter, not two parallel mappers:
-      `extract_claims()` scores every Statement (hedge-word heuristic -
-      placeholder, see `pipeline._score_confidence`); `extract_facts()`
-      promotes a Claim only if `confidence >= FACT_CONFIDENCE_THRESHOLD`
-      *and* its predicate maps to a known ontology `Predicate`
-- [x] Full provenance chain: `Fact.source_claim` -> `Claim.supporting_statements`
-      -> `Statement.id`
-- [x] Convert manual test script into real `pytest` tests
-- [x] Negative golden test proving a hedged claim is *not* promoted
-      (`tests/golden/pr_003_hedged`)
-- [x] `pyproject.toml` / `requirements.txt` filled out
-- [x] Empty placeholder files removed (`memory/`, `parser/`, `logger.py`,
-      `analysis/confidence.py`, `notebooks/*.md`)
-- [x] README updated for a clone-and-run-in-under-a-minute quickstart
-- [x] Additional artifact shapes beyond PR-style (commit, ADR support with section header parsing)
-- [x] `LLMStatementExtractor` - implemented behind `LLMProvider` abstraction (`OpenAIProvider`, `GeminiProvider`, `GenericHTTPProvider`, `MockLLMProvider`)
-- [x] General entity recognizer (`GeneralEntityRecognizer` replacing fixed regex list)
+- [x] `Statement -> Claim -> Fact` as a real filter, not two parallel mappers
+- [x] Full provenance chain: `Fact.source_claim -> Claim.supporting_statements -> Statement.id`
+- [x] Negative golden proving a hedged claim is not promoted
+- [x] Artifact shapes beyond PR-style (commit, ADR, section header parsing)
+- [x] `LLMStatementExtractor` behind an `LLMProvider` abstraction
+- [x] General entity recognizer replacing the fixed regex list
 
-## Phase 2 - entity resolution, Relation, and Next-Gen Architecture Infrastructure
+## Phase 2 — done
 
-- [x] Link Fact subject/object text to the separately-extracted Entity list
-      (`DeterministicEntityResolver` with canonical name and alias matching)
-- [x] `Relation` IR type (`Entity --predicate--> Entity`), built from
-      resolved Facts + Entities via `RuleBasedRelationExtractor`
-- [x] Deterministic Hashing & Identity Infrastructure (`deterministic_id`)
-- [x] Hierarchical Document Structure preservation (`section_header` and `parent_id` on Observations/Segments)
-- [x] Formal `OntologyRegistry` and versioning (`OntologyVersion.V1_0`)
-- [x] Typed `CompiledArtifact` compiler output contract with backward-compatible dict access
-- [x] MemoryPatch Linker implementation (`ThreePassMemoryPatchLinker`: `BindingPass`, `PersistencePass`, `AnalysisPipeline`)
-- [x] Evidence Model (`EvidenceRecord`: One PersistedFact -> Many EvidenceRecords)
-- [x] `ArtifactRef` symbol resolution preserving ontology separation between documents and domain entities
-- [x] Composable `AnalysisRule` pipeline (`ExplicitDeprecationRule`, `SingleOccupancyDecisionRule`, `DirectNegationConflictRule`)
-- [x] In-Memory Persistent Store reference implementation (`InMemoryProjectMemory`)
-- [x] `RFC_003_PERSISTENT_IDENTITY_EVIDENCE_AND_MEMORY.md` with explicit Non-Goals section
-- [ ] Persistent Disk Storage Engine (SQLite / Parquet format persistence)
+- [x] Entity resolution linking fact operands to extracted entities
+- [x] `Relation` IR type, and the linker actually consumes it
+- [x] Deterministic hashing and identity (`deterministic_id`)
+- [x] Hierarchical document structure preserved (`section_header`, `parent_id`)
+- [x] Versioned `OntologyRegistry`
+- [x] Typed `CompiledArtifact` output contract
+- [x] `ThreePassMemoryPatchLinker` (binding, persistence, analysis)
+- [x] Evidence model: one `PersistedFact` → many `EvidenceRecord`
+- [x] `ArtifactRef` ontology separation
+- [x] Composable `AnalysisRule` pipeline
+- [x] In-memory reference store
+- [x] **SQLite persistence engine** with a shared conformance suite
+- [x] RFC 003 with explicit non-goals
 
+## Phase 2.5 — the read path (done)
 
+Added after building a resolver falsified four write-side assumptions. See
+`docs/findings/read-path.md` and RFC 004.
 
-## Phase 3 - not started
+- [x] `BeliefResolver` — memory → current belief, history, evidence, diagnostics
+- [x] `BeliefReader` contract, separate from the linker's `MemoryReader`
+- [x] Entity-anchored extraction (the fix for artifact-anchored facts)
+- [x] Temporal ordering: belief invariant under ingestion permutation
+- [x] Supersession provenance (`source_artifact_id`, `recorded_at`, `basis`)
+- [x] Weighable evidence (claim confidence × artifact-type authority)
+- [x] Entity identity hashed on name only, not `(type, name)`
+- [x] Deterministic compiler-local ordinals, making reproducibility testable
+- [x] `tests/test_import_boundaries.py` — architectural invariants as assertions
+- [x] Scenario goldens with `expected_belief.json`
+- [x] `pme` CLI: `compile` / `ingest` / `ask` / `stats`
 
-- [ ] Explanation Engine
-- [ ] Compliance Engine
+## Phase 3 — next
 
-## Explicitly out of scope for now
+- [ ] **Entity aliasing and merge semantics.** `API Gateway` / `the gateway` /
+      `APIGW` are three permanent identities in an append-only store. Candidate:
+      a `SAME_AS` edge resolved at read time, so a merge is an assertion with
+      evidence rather than a mutation. The hardest remaining identity problem,
+      and the one that compounds with corpus age.
+- [ ] **Richer extraction.** The pattern table is a floor. Either more patterns
+      or an LLM extractor behind the same interface — the shape of the output
+      matters, not the matcher.
+- [ ] **Ontology evolution.** V1 → V2 migration semantics. RFC 002 specifies the
+      registry; what happens to facts compiled under an older ontology is open.
+- [ ] **Query beyond single-entity lookup.** "What changed in authentication
+      between 2023 and 2025", "what depends on Redis".
 
-No vector databases, no graph databases (Neo4j), no embeddings, no agent
-loops, no MCP, no orchestration frameworks. None of that solves "can the
-compiler deterministically understand one artifact" - which is still the
-open problem Phase 1/2 are about.
+## Phase 4 — applications, once Phase 3 settles
+
+- [ ] Explanation engine (natural-language rendering over `ResolvedBelief`)
+- [ ] Compliance engine
+- [ ] Onboarding assistant
+
+These sit *on* the resolver. If each builds its own resolution, they will
+disagree with each other about what the project believes.
+
+## Explicitly out of scope
+
+No vector databases, no graph databases, no embeddings, no agent loops, no MCP,
+no orchestration frameworks. None of them answer the open question, which is
+whether a project can build and justify knowledge about itself deterministically.

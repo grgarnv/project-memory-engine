@@ -1,5 +1,10 @@
 # RFC 001: Compiler-Linker Architecture & Output Contract
 
+> **Amended by RFC 004 (§3).** The determinism guarantee below is conditional,
+> not absolute: identical output requires identical
+> `(artifact content, compiler version, ontology version, extractor configuration)`.
+> `CompiledArtifact` records the versions so a compilation can be re-derived.
+
 **Status:** APPROVED ARCHITECTURAL SPECIFICATION  
 **Scope:** Memory Engine Architecture, `CompiledArtifact` API, Identity System, MemoryPatch Interface  
 **Authors:** Systems Engineering Team  

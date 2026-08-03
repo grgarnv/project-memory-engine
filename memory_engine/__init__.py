@@ -1,63 +1,48 @@
 """
 Project Memory Engine
+
+A compiler-based system that gives a software project a persistent, evolving
+model of its own knowledge.
+
+    memory_engine.ontology   the fixed vocabulary
+    memory_engine.ir         compiler intermediate representation
+    memory_engine.compiler   stateless artifact -> IR
+    memory_engine.memory     persistent schema + store contracts
+    memory_engine.linker     stateful IR -> memory delta
+    memory_engine.store      store implementations (in-memory, SQLite)
+    memory_engine.resolve    memory -> current belief, with evidence
+    memory_engine.ingest     the wiring
+
+Dependency direction:
+
+    ontology <- ir <- compiler
+    ontology <- memory <- linker
+                memory <- store
+                memory <- resolve
+
+compiler never imports linker, store, or resolve.
+resolve never imports compiler or linker.
+Enforced by tests/test_import_boundaries.py.
 """
-from memory_engine.ir import Artifact, ArtifactType, Observation, Segment, Statement, Entity, Claim, Fact, Relation, CompiledArtifact
-from memory_engine.ontology import EntityType, Predicate, OntologyVersion, OntologyRegistry
-from memory_engine.pipeline import MemoryCompiler
-from memory_engine.patch import (
-    ArtifactRef,
-    GlobalEntityBinding,
-    EvidenceRecord,
-    PersistedFact,
-    SupersessionEdge,
-    ConflictEdge,
-    MemoryDelta,
-    MemoryReader,
-    MemoryPatchLinker,
-    ThreePassMemoryPatchLinker,
-    BindingPass,
-    PersistencePass,
-    AnalysisRule,
-    AnalysisPipeline,
-    ExplicitDeprecationRule,
-    SingleOccupancyDecisionRule,
-    DirectNegationConflictRule,
-    InMemoryProjectMemory,
-)
+__version__ = "0.3.0"
+
+from memory_engine.compiler import MemoryCompiler
+from memory_engine.ingest import Ingestor, load_artifact
+from memory_engine.ir import Artifact, ArtifactType
+from memory_engine.linker import ThreePassMemoryPatchLinker
+from memory_engine.resolve import BeliefResolver, render
+from memory_engine.store import InMemoryProjectMemory, SQLiteProjectMemory
 
 __all__ = [
+    "__version__",
     "Artifact",
     "ArtifactType",
-    "Observation",
-    "Segment",
-    "Statement",
-    "Entity",
-    "Claim",
-    "Fact",
-    "Relation",
-    "CompiledArtifact",
-    "EntityType",
-    "Predicate",
-    "OntologyVersion",
-    "OntologyRegistry",
     "MemoryCompiler",
-    "ArtifactRef",
-    "GlobalEntityBinding",
-    "EvidenceRecord",
-    "PersistedFact",
-    "SupersessionEdge",
-    "ConflictEdge",
-    "MemoryDelta",
-    "MemoryReader",
-    "MemoryPatchLinker",
     "ThreePassMemoryPatchLinker",
-    "BindingPass",
-    "PersistencePass",
-    "AnalysisRule",
-    "AnalysisPipeline",
-    "ExplicitDeprecationRule",
-    "SingleOccupancyDecisionRule",
-    "DirectNegationConflictRule",
     "InMemoryProjectMemory",
+    "SQLiteProjectMemory",
+    "BeliefResolver",
+    "render",
+    "Ingestor",
+    "load_artifact",
 ]
-

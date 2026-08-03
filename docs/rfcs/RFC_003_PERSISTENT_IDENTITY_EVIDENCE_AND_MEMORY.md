@@ -1,5 +1,12 @@
 # RFC 003: Persistent Identity, Evidence Model & Memory Semantics
 
+> **Amended by RFC 004.** Three changes since this RFC was approved:
+> persistent entity IDs hash the canonical name **only**, never the entity type
+> (§7); `SupersessionEdge` carries `source_artifact_id`, `recorded_at` and
+> `basis` (§5); and `EvidenceRecord` carries real claim confidence and artifact
+> authority rather than a hardcoded value (§6). RFC 004 also adds read-side
+> non-goals mirroring §6 below.
+
 **Status:** APPROVED ARCHITECTURAL SPECIFICATION  
 **Scope:** MemoryPatch Linker Architecture, Identity System, Evidence Model, Analysis Rules  
 **Authors:** Systems Engineering Team  

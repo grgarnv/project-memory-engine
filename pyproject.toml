@@ -1,16 +1,22 @@
 [project]
 name = "project-memory-engine"
-version = "0.1.0"
-description = "A compiler-based system that transforms software artifacts into an evolving model of project understanding."
+version = "0.3.0"
+description = "A compiler-based system that gives a software project a persistent, evolving model of its own knowledge."
+readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
 dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
+[project.scripts]
+pme = "memory_engine.cli:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "-q"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -1,0 +1,17 @@
+{
+  "query": "service-to-service authentication",
+  "current_decision": "OAuth2",
+  "current_support": 2.3,
+  "current_evidence_artifact_types": [
+    "adr",
+    "commit",
+    "pull_request"
+  ],
+  "superseded": [
+    "JWT"
+  ],
+  "supersession_basis": [
+    "recorded_at"
+  ],
+  "conflicts": 0
+}

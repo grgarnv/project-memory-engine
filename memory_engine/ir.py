@@ -1,45 +1,73 @@
 """
-Memory IR (Intermediate Representation)
+Compiler IR (Intermediate Representation)
 
-Every object the compiler passes between stages lives here, in one file,
-so the whole data model can be read top to bottom without file-hunting.
-
-Pipeline shape:
+Every object the compiler passes between stages lives here, in one file, so
+the whole compiler-side data model can be read top to bottom.
 
     Artifact -> Observation -> Segment -> Statement -> Claim -> Fact
-                                              |
-                                              +-> Entity
-
-    MemoryPatch sits downstream of all of it - not produced yet.
+                                   |                             |
+                                   +-> Entity ------------------>+-> Relation
 
 Artifact    raw input (a PR, commit, ADR, ...)
 Observation artifact chunked into typed paragraphs
-Segment     an observation split by semantic role (description/reason/tradeoff)
+Segment     an observation split by semantic role (description/reason/decision/...)
 Statement   a segment turned into a (subject, predicate, target) triple
-Entity      a named thing (component, feature, ...) pulled out of a segment
-Claim       something the artifact asserts - every Statement becomes a
-            Claim, scored with a confidence heuristic. May be wrong,
-            vague, or unstructured; that's fine, it's just a claim.
-Fact        a Claim FactPass has accepted as structured knowledge - only
-            promoted if it's both confident and maps onto a known
-            ontology Predicate. Everything else stays a Claim only.
-MemoryPatch the diff to apply to long-term project memory (not wired up yet
-            - see docs/roadmap.md)
+Entity      a named thing (component, feature, capability, ...) pulled from a segment
+Claim       something the artifact asserts, scored with a confidence heuristic;
+            may be wrong, vague, or hedged - that's fine, it's just a claim
+Fact        a Claim FactPass accepted as structured knowledge: confident enough
+            AND mapping onto a known ontology Predicate
+Relation    Entity --predicate--> Entity, built from Facts whose subject and
+            object both resolved to extracted entities
+
+Nothing here is persistent. Persistent memory types live in memory_engine.memory.model;
+the compiler must never import them.
 """
+from __future__ import annotations
+
+import contextvars
+import hashlib
+import itertools
+import json
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
-import uuid
 
-from memory_engine.ontology import Predicate
+from memory_engine.ontology import EntityType, OntologyVersion, Predicate
 
 
-import hashlib
-import json
-from typing import Iterator
+# Compiler-local identity.
+#
+# RFC 003 specifies deterministic local ordinals (obs:0, seg:1) for transient
+# compiler nodes, but the IR was using uuid4 - which meant compiling the same
+# artifact twice produced different IR and the reproducibility guarantee was
+# not actually testable. Inside a `local_id_scope` (entered by
+# MemoryCompiler.compile), IDs are ordinals. Outside one - hand-built IR in
+# tests, ad-hoc use - they fall back to uuid4.
+_local_counters: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "pme_local_counters", default=None
+)
 
-from memory_engine.ontology import Predicate, OntologyVersion
+
+class local_id_scope:
+    """Makes compiler-local IDs deterministic ordinals for the duration."""
+
+    def __enter__(self) -> "local_id_scope":
+        self._token = _local_counters.set({})
+        return self
+
+    def __exit__(self, *exc) -> None:
+        _local_counters.reset(self._token)
+
+
+def local_id(prefix: str) -> str:
+    counters = _local_counters.get()
+    if counters is None:
+        return str(uuid.uuid4())
+    counter = counters.setdefault(prefix, itertools.count())
+    return f"{prefix}:{next(counter)}"
 
 
 def _uid() -> str:
@@ -48,11 +76,14 @@ def _uid() -> str:
 
 def deterministic_id(scope: str, *components: str) -> str:
     """
-    Generate a stable, deterministic content-addressed hash ID.
+    Stable, content-addressed hash ID.
 
-    Usage:
         deterministic_id("artifact", artifact.type.value, artifact.content)
-        deterministic_id("entity", entity_type.value, canonical_name.lower())
+        deterministic_id("entity", canonical_name.lower())
+
+    Entity IDs deliberately hash the NAME ONLY, never the entity type: two
+    artifacts that disagree about whether OAuth2 is a FRAMEWORK or a FEATURE
+    must still bind to the same entity. See docs/rfcs/RFC_004.
     """
     payload = f"{scope}:" + ":".join(str(c) for c in components)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
@@ -73,13 +104,32 @@ class ArtifactType(Enum):
     CODE = "code"
 
 
+# How much weight an artifact type carries as evidence. An ADR is a deliberate,
+# reviewed decision record; a commit message is a side effect of doing the work.
+# Used by the linker only - the compiler never reads it.
+ARTIFACT_AUTHORITY: dict[ArtifactType, float] = {
+    ArtifactType.ADR: 1.0,
+    ArtifactType.PR: 0.8,
+    ArtifactType.ISSUE: 0.6,
+    ArtifactType.COMMIT: 0.5,
+    ArtifactType.DOCUMENT: 0.7,
+    ArtifactType.SLACK: 0.3,
+    ArtifactType.CODE: 0.9,
+}
+
+
 @dataclass(slots=True)
 class Artifact:
     id: str = field(default_factory=_uid)
     type: ArtifactType = ArtifactType.DOCUMENT
     source: Path | None = None
     content: str = ""
+    recorded_at: str = ""  # ISO-8601. When the artifact entered project history.
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def authority(self) -> float:
+        return ARTIFACT_AUTHORITY.get(self.type, 0.5)
 
 
 # ---------------------------------------------------------------------------
@@ -88,9 +138,9 @@ class Artifact:
 
 @dataclass(slots=True)
 class Observation:
-    id: str = field(default_factory=_uid)
+    id: str = field(default_factory=lambda: local_id("obs"))
     text: str = ""
-    type: str = "paragraph"  # header | paragraph | reason | tradeoff
+    type: str = "paragraph"  # header | paragraph | reason | tradeoff | decision | status
     confidence: float = 1.0
     artifact_id: str = ""
     section_header: str = ""
@@ -113,7 +163,7 @@ class SegmentKind(Enum):
 
 @dataclass(slots=True)
 class Segment:
-    id: str = field(default_factory=_uid)
+    id: str = field(default_factory=lambda: local_id("seg"))
     kind: SegmentKind = SegmentKind.DESCRIPTION
     text: str = ""
     observation_id: str = ""
@@ -127,7 +177,7 @@ class Segment:
 
 @dataclass(slots=True)
 class Statement:
-    id: str = field(default_factory=_uid)
+    id: str = field(default_factory=lambda: local_id("stmt"))
     subject: str = ""
     predicate: str = ""
     target: str = ""
@@ -136,15 +186,12 @@ class Statement:
 
 
 # ---------------------------------------------------------------------------
-# Stage 4: Entity (extracted alongside statements, from the same segments)
+# Stage 4: Entity
 # ---------------------------------------------------------------------------
-
-from memory_engine.ontology import EntityType  # noqa: E402  (avoid circular import at top)
-
 
 @dataclass(slots=True)
 class Entity:
-    id: str = field(default_factory=_uid)
+    id: str = field(default_factory=lambda: local_id("ent"))
     canonical_name: str = ""
     entity_type: EntityType = EntityType.UNKNOWN
     aliases: list[str] = field(default_factory=list)
@@ -152,12 +199,12 @@ class Entity:
 
 
 # ---------------------------------------------------------------------------
-# Stage 5a: Claim - statement wrapped with a confidence score
+# Stage 5a: Claim
 # ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class Claim:
-    id: str = field(default_factory=_uid)
+    id: str = field(default_factory=lambda: local_id("claim"))
     subject: str = ""
     predicate: str = ""
     target: str = ""
@@ -166,7 +213,7 @@ class Claim:
 
 
 # ---------------------------------------------------------------------------
-# Stage 5b: Fact - a Claim the compiler has accepted as structured knowledge
+# Stage 5b: Fact
 # ---------------------------------------------------------------------------
 
 class FactType(Enum):
@@ -178,22 +225,23 @@ class FactType(Enum):
 
 @dataclass(slots=True)
 class Fact:
-    id: str = field(default_factory=_uid)
+    id: str = field(default_factory=lambda: local_id("fact"))
     subject: str = ""
     predicate: Predicate = Predicate.UNKNOWN
     object: str = ""
     fact_type: FactType = FactType.OBSERVATION
     source_claim: str = ""
+    confidence: float = 1.0
     supporting_statements: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
-# Stage 5c: Relation - Entity-to-Entity edge produced from resolved Facts
+# Stage 5c: Relation
 # ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class Relation:
-    id: str = field(default_factory=_uid)
+    id: str = field(default_factory=lambda: local_id("rel"))
     subject_entity_id: str = ""
     predicate: Predicate = Predicate.UNKNOWN
     object_entity_id: str = ""
@@ -202,17 +250,14 @@ class Relation:
 
 
 # ---------------------------------------------------------------------------
-# Compiler Output Contract: CompiledArtifact
+# Compiler output contract
 # ---------------------------------------------------------------------------
 
 @dataclass
 class CompiledArtifact:
     """
-    Immutable typed container for full compiler output.
-
-    Provides dictionary compatibility (`__getitem__`, `to_dict()`) to preserve
-    backwards compatibility with existing test suites while introducing typed
-    inspection and metadata for MemoryPatch downstream.
+    Typed container for full compiler output. Dictionary access is preserved
+    for the golden-test suite.
     """
     artifact: Artifact
     observations: list[Observation] = field(default_factory=list)
@@ -223,6 +268,7 @@ class CompiledArtifact:
     facts: list[Fact] = field(default_factory=list)
     relations: list[Relation] = field(default_factory=list)
     ontology_version: OntologyVersion = OntologyVersion.V1_0
+    compiler_version: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __getitem__(self, item: str) -> Any:
@@ -236,7 +282,8 @@ class CompiledArtifact:
     def keys(self) -> list[str]:
         return [
             "observations", "segments", "statements", "entities",
-            "claims", "facts", "relations", "artifact", "ontology_version", "metadata"
+            "claims", "facts", "relations", "artifact",
+            "ontology_version", "compiler_version", "metadata",
         ]
 
     @property
@@ -246,6 +293,18 @@ class CompiledArtifact:
     @property
     def relation_count(self) -> int:
         return len(self.relations)
+
+    def entity_by_id(self, entity_id: str) -> Entity | None:
+        for entity in self.entities:
+            if entity.id == entity_id:
+                return entity
+        return None
+
+    def claim_by_id(self, claim_id: str) -> Claim | None:
+        for claim in self.claims:
+            if claim.id == claim_id:
+                return claim
+        return None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -261,7 +320,8 @@ class CompiledArtifact:
                 for e in self.entities
             ],
             "claims": [
-                {"subject": c.subject, "predicate": c.predicate, "target": c.target, "confidence": c.confidence}
+                {"subject": c.subject, "predicate": c.predicate,
+                 "target": c.target, "confidence": c.confidence}
                 for c in self.claims
             ],
             "facts": [
@@ -269,24 +329,13 @@ class CompiledArtifact:
                 for f in self.facts
             ],
             "relations": [
-                {"subject_id": r.subject_entity_id, "predicate": r.predicate.value, "object_id": r.object_entity_id}
+                {"subject_id": r.subject_entity_id, "predicate": r.predicate.value,
+                 "object_id": r.object_entity_id}
                 for r in self.relations
             ],
             "ontology_version": self.ontology_version.value,
+            "compiler_version": self.compiler_version,
         }
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
-
-
-# ---------------------------------------------------------------------------
-# Stage 6: MemoryPatch (future - contract interfaces in memory_engine/patch.py)
-# ---------------------------------------------------------------------------
-
-@dataclass(slots=True)
-class MemoryPatch:
-    created: list[str] = field(default_factory=list)
-    modified: list[str] = field(default_factory=list)
-    removed: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-

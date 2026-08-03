@@ -1,0 +1,10 @@
+{
+  "name": "oauth2-supersedes-jwt",
+  "question": "Why do we use OAuth2 instead of JWT?",
+  "artifacts": [
+    {"file": "adr-004-jwt-auth.md",          "type": "adr",         "recorded_at": "2023-01-11"},
+    {"file": "adr-012-oauth2-auth.md",       "type": "adr",         "recorded_at": "2024-05-02"},
+    {"file": "pr-318-gateway-migration.md",  "type": "pull_request","recorded_at": "2024-05-20"},
+    {"file": "commit-9a1-remove-jwt-keys.md","type": "commit",      "recorded_at": "2024-06-03"}
+  ]
+}

@@ -1,73 +1,243 @@
 # Architecture
 
-Project Memory Engine turns a software artifact (PR, commit, ADR, issue, ...)
-into structured facts, entities, and claims about the project.
+Project Memory Engine turns software artifacts (PRs, commits, ADRs, issues) into
+a persistent, append-only model of what a project knows about itself.
 
-## Pipeline
+Three components, in strict dependency order. Each answers a different question.
+
+| Component | Question | State |
+|---|---|---|
+| Compiler | What does *this artifact* assert? | stateless |
+| Linker | How does that assertion enter memory? | stateful |
+| Resolver | What does the project *currently believe*, and why? | read-only |
+
+The resolver is core infrastructure, not an application. Explanation engines,
+compliance engines, and onboarding assistants are built on top of it — they are
+not it. See RFC 004 §2.
+
+---
+
+## Dependency direction
+
+```
+        ontology  <----------------  ir  <----------------  compiler
+            ^                                                  |
+            |                                                  | (no edge)
+            |                                                  X
+            |                                                  |
+          memory  <---- linker                                 v
+            ^   ^                                        CompiledArtifact
+            |   +------- store
+            |
+          resolve
+```
+
+| Package | May import |
+|---|---|
+| `ontology` | — |
+| `ir` | `ontology` |
+| `compiler` | `ir`, `ontology` |
+| `memory` | `ontology` |
+| `linker` | `ir`, `memory` |
+| `store` | `memory` |
+| `resolve` | `memory` |
+| `ingest` | all of the above |
+
+`memory` is the spine. The linker writes its types, the resolver reads them,
+stores implement its contracts — so neither side depends on the other. The
+compiler never imports the linker; the resolver never imports either.
+
+`tests/test_import_boundaries.py` parses every module's AST and fails the build
+if any of this stops being true. These are assertions, not conventions.
+
+---
+
+## Compiler
 
 ```
 Artifact
    |
    v
-observe()             -> Observation   (typed paragraphs)
+observe()              -> Observation   typed paragraphs, section headers preserved
    |
    v
-segment()             -> Segment       (description / reason / tradeoff)
+segment()              -> Segment       description / reason / decision / tradeoff / ...
    |
-   +--> extract_statements()  -> Statement  (subject, predicate, target)
+   +--> extract_statements()  -> Statement   (subject, predicate, target)
    |         |
    |         v
-   |     extract_claims()     -> Claim      (confidence-scored assertion)
+   |     extract_claims()     -> Claim       confidence-scored assertion
    |         |
    |         v
-   |     extract_facts()      -> Fact       (Claim, filtered + normalized)
+   |     extract_facts()      -> Fact        ontology-normalized, filtered
+   |         |
+   |         v
+   |     resolve_entities()   -> ResolvedFact
+   |         |
+   |         v
+   |     extract_relations()  -> Relation    Entity --predicate--> Entity
    |
-   +--> extract_entities()    -> Entity  (named things mentioned)
+   +--> extract_entities()    -> Entity      named things
 ```
 
-Entity is a parallel branch off Segment, not a downstream consumer of Fact -
-entity extraction doesn't need a statement to have been built from a
-sentence, it just needs the sentence.
+Entity extraction is a parallel branch off Segment, not downstream of Fact: it
+needs the sentence, not the triple.
 
-`MemoryCompiler.compile()` in `memory_engine/pipeline.py` runs every stage
-above in order and returns a typed `CompiledArtifact` instance. There is no stage that runs but
-isn't called from `compile()` - if it's in the file, it's in the pipeline.
+`MemoryCompiler.compile()` runs every stage in order and returns a typed
+`CompiledArtifact`. Nothing runs outside `compile()`.
 
-## Compiler-Linker Decoupling
+### Statement extraction is composite
 
-The engine follows a strict Compiler/Linker architecture:
+Two extractors run, and they are not redundant:
 
-- **Compiler (`MemoryCompiler`)**: Pure, stateless single-artifact knowledge extractor. Consumes one `Artifact` and emits a typed `CompiledArtifact` object.
-- **Linker (`ThreePassMemoryPatchLinker`)**: Stateful cross-artifact knowledge linker executing three deterministic internal passes:
-  - **Pass 1 (`BindingPass`)**: Binds local entities to persistent global IDs; resolves `$ARTIFACT_SELF` / `CURRENT_CHANGE` to `ArtifactRef(artifact_id)`.
-  - **Pass 2 (`PersistencePass`)**: Promotes compiler facts to content-addressed `PersistedFact` nodes ($O(1)$ deduplication) and accumulates `EvidenceRecord` entries.
-  - **Pass 3 (`AnalysisPipeline`)**: Runs an ordered sequence of deterministic `AnalysisRule` plugins (`ExplicitDeprecationRule`, `SingleOccupancyDecisionRule`, `DirectNegationConflictRule`).
+- **`RuleBasedStatementExtractor`** — segment kind → artifact-level assertion.
+  Subject is always the artifact. Preserves what the document said.
+- **`RelationalStatementExtractor`** — surface patterns → domain assertion.
+  Subject and object are project concepts. This is what makes the graph a graph.
 
-## Core Architectural Invariants
+A system with only the first can answer "what does ADR 012 say", which is
+document retrieval with extra steps. A system with only the second loses the
+document's own voice.
 
-1. **Deterministic Hashing & Identity**: Artifacts, Entities, and Persisted Facts use stable content-addressed IDs (`deterministic_id`). Transient compiler nodes use local ordinal identifiers (`obs:0`, `seg:1`).
-2. **Evidence Model (One Fact -> Many Evidence Records)**: Multiple artifacts asserting the same relationship accumulate `EvidenceRecord` items under one `PersistedFact` node rather than duplicating graph facts.
-3. **ArtifactRef Symbol Resolution**: `$ARTIFACT_SELF` resolves to `ArtifactRef(artifact_id)`, preserving strict ontology separation between evidence documents and domain concept entities.
-4. **Hierarchical Document Preservation**: `Observation` and `Segment` record section headers (`section_header`) and parent IDs (`parent_id`) so structural document context survives compilation.
-5. **Ontology Registry**: Managed by a versioned `OntologyRegistry` (`OntologyVersion.V1_0`). The compiler queries the registry for predicate and entity type normalization.
-6. **Typed Compiler Output Contract**: `MemoryCompiler.compile()` returns a `CompiledArtifact` object, providing full dictionary compatibility (`__getitem__`, `to_dict()`, `to_json()`) alongside typed properties.
+Both the relational extractor and `PhraseEntityRecognizer` read the same pattern
+table (`compiler/extractors/patterns.py`), so a phrase can never become a fact
+operand without also existing as an entity.
 
-## Claim vs. Fact
+### Claim vs Fact
 
-These are deliberately separate compiler IR representations:
+Deliberately separate IR types:
 
-- **Claim** - Epistemic IR: anything the artifact asserts, scored with a confidence heuristic.
-- **Fact** - Normalized Ontology IR: a `Claim` that `FactPass` has accepted as structured knowledge (confidence >= `FACT_CONFIDENCE_THRESHOLD` and predicate normalized by `OntologyRegistry`).
+- **Claim** — epistemic IR. Anything the artifact asserts, scored by a hedge-word
+  heuristic. May be vague or wrong; that is fine.
+- **Fact** — normalized ontology IR. A Claim that cleared
+  `FACT_CONFIDENCE_THRESHOLD` *and* mapped onto a known `Predicate`. Unmapped
+  predicates are dropped, never invented.
+
+---
+
+## Linker
+
+```
+CompiledArtifact
+   |
+   v
+BindingPass         local entities -> global IDs; $ARTIFACT_SELF -> ArtifactRef
+   |
+   v
+PersistencePass     facts -> content-addressed PersistedFact + EvidenceRecord
+   |
+   v
+AnalysisPipeline    composable rules -> SupersessionEdge / ConflictEdge
+   |
+   v
+MemoryDelta         append-only; contains no deletions
+```
+
+Rules, run in order and then de-duplicated:
+
+- `ExplicitDeprecationRule` — "replace X with Y" retires facts naming X as current
+- `SingleOccupancyDecisionRule` — a new `SELECTED` on the same subject retires the old
+- `DirectNegationConflictRule` — `PROHIBITS` vs `ALLOWS` becomes a recorded conflict
+
+Every supersession routes through `linker/ordering.py`, never through arrival
+order. See "Time" below.
+
+---
+
+## Resolver
+
+```
+ProjectMemory
+   |
+   v
+BeliefResolver.explain(entity)
+   |
+   v
+ResolvedBelief
+   current       active facts, with accumulated evidence and support
+   history       superseded facts, with the edge and artifact that retired them
+   conflicts     contradictions memory declined to resolve
+   diagnostics   why this answer is incomplete or fragile
+```
+
+Deterministic traversal, no synthesis. Walks supersession edges in both
+directions — a current decision is only half an answer without what it replaced.
+
+Distinguishes three kinds of "no": name unknown, name bound but never asserted,
+and asserted only under non-decision predicates. Collapsing those would be
+fabrication.
+
+---
+
+## Core invariants
+
+1. **Conditional determinism.** Compilation is reproducible given
+   `(content, compiler version, ontology version, extractor config)`.
+   `CompiledArtifact` records the versions. Compiler-local IDs are ordinals
+   (`obs:0`, `stmt:3`), not UUIDs — otherwise the guarantee is untestable.
+2. **Content-addressed identity.** Artifacts hash `(type, content)`; entities hash
+   the normalized name **only**, never the type, so two artifacts disagreeing about
+   an entity's type still bind to one entity; facts hash `(subject, predicate, object)`;
+   evidence hashes `(artifact, source fact)`.
+3. **One PersistedFact → many EvidenceRecords.** N artifacts asserting the same
+   relationship accumulate evidence under one node.
+4. **Evidence is weighable.** Each record carries claim confidence, artifact type,
+   and that type's authority. `support` is derived at read time and never stored.
+   It measures commitment, not probability of truth.
+5. **Append-only.** No `UPDATE`, no `DELETE` in any store. Invalidation is a
+   `SupersessionEdge`, which names the artifact that caused it.
+6. **Order-independent belief.** Any ingestion permutation of a timestamped corpus
+   converges on the same belief.
+7. **Ontology separation.** `ArtifactRef` keeps evidence documents out of the
+   domain concept namespace.
+8. **No LLM below the compiler.** The provider abstraction is quarantined in
+   `compiler/extractors/llm/` and the boundary test forbids importing it elsewhere.
+
+---
+
+## Time
+
+Time attaches to **evidence**, not to facts. A fact is not an event; it is a claim
+about the world that artifacts support at points in time. A fact's assertion time
+is derived as the maximum `recorded_at` over its evidence.
+
+`compare_assertions` yields four outcomes:
+
+| Outcome | Effect |
+|---|---|
+| `LATER` | incoming supersedes stored |
+| `EARLIER` | **stored supersedes incoming** — this is what makes backfill safe |
+| `SIMULTANEOUS` | `ConflictEdge`; memory declines to pick |
+| `UNKNOWN` | ingestion order, edge marked `basis="ingestion_order"` |
+
+`UNKNOWN` is not silently equivalent to `LATER`. The basis is stored on the edge
+and reported in the answer, because a memory whose beliefs rest on replay order
+should say so rather than look confident.
+
+---
 
 ## Modules
 
-- `memory_engine/ir.py` - IR data types (`Artifact`, `Observation`, `Segment`, `Statement`, `Entity`, `Claim`, `Fact`, `Relation`, `CompiledArtifact`, `deterministic_id`)
-- `memory_engine/ontology.py` - fixed vocabulary (`EntityType`, `Predicate`), `OntologyVersion`, and `OntologyRegistry`
-- `memory_engine/extractors.py` - pluggable Statement/Fact extraction logic and entity resolution
-- `memory_engine/pipeline.py` - stage functions plus `MemoryCompiler`
-- `memory_engine/patch.py` - Phase 2 MemoryPatch implementation (`ThreePassMemoryPatchLinker`, `BindingPass`, `PersistencePass`, `AnalysisPipeline`, `AnalysisRule`, `EvidenceRecord`, `ArtifactRef`, `InMemoryProjectMemory`)
-- `docs/rfcs/` - formal Architecture RFCs (RFC 001, RFC 002, RFC 003)
+| Path | Contents |
+|---|---|
+| `ontology.py` | `EntityType`, `Predicate`, `OntologyVersion`, `OntologyRegistry` |
+| `ir.py` | compiler IR, `deterministic_id`, `local_id_scope` |
+| `compiler/pipeline.py` | stage functions + `MemoryCompiler` |
+| `compiler/extractors/patterns.py` | relational pattern table, phrase normalization |
+| `compiler/extractors/{statements,facts,entities,relations}.py` | pluggable extraction |
+| `compiler/extractors/llm/` | provider abstraction (quarantined) |
+| `memory/model.py` | `PersistedFact`, `EvidenceRecord`, `SupersessionEdge`, `ConflictEdge`, `MemoryDelta`, `ArtifactRef` |
+| `memory/contracts.py` | `MemoryReader` / `BeliefReader` / `MemoryWriter` / `ProjectMemory` |
+| `linker/passes/` | binding, persistence, analysis |
+| `linker/rules/` | deprecation, single-occupancy, negation |
+| `linker/ordering.py` | temporal comparison |
+| `store/in_memory.py` | reference implementation |
+| `store/sqlite.py` | durable store |
+| `resolve/resolver.py` | `BeliefResolver`, `ResolvedBelief`, `BeliefNode` |
+| `resolve/render.py` | presentation only |
+| `ingest.py` | the only module wiring all three components |
+| `cli.py` | `compile` / `ingest` / `ask` / `stats` |
 
-See `docs/roadmap.md` for current phase status and progress.
-
-
+See `docs/roadmap.md` for phase status, `docs/rfcs/` for the formal
+specifications, and `docs/findings/read-path.md` for what building the read path
+exposed.

@@ -1,50 +1,230 @@
 # Project Memory Engine
 
-A compiler-based system that transforms software artifacts into an evolving
-model of project understanding.
+A software project accumulates knowledge for years across PRs, commits, ADRs,
+RFCs, issues, and design discussions — and then has to search it, every time,
+from scratch.
+
+The project has history. It does not have understanding.
+
+This is an attempt to give a project a persistent internal model of itself: what
+was decided, what replaced what, why, and on what evidence. Not a retrieval
+system with a language model in front of it — a compiler and a linker that build
+knowledge incrementally, and a resolver that answers from what was accumulated.
 
 ```
-Artifact -> Observation -> Segment -> Statement -> Fact / Claim
-                                          |
-                                          +-> Entity
+$ pme ingest fixtures/scenarios/oauth2-supersedes-jwt --ask "service-to-service authentication"
+
+Q: what does the project believe about 'service-to-service authentication'?
+
+CURRENT
+  service-to-service authentication --selected--> OAuth2
+    support=2.3 across 3 artifact(s)  last asserted 2024-06-03
+      adr          2024-05-02   weight=1.0    artifact=artifact_e38077af3bd
+      pull_request 2024-05-20   weight=0.8    artifact=artifact_a64b97b1092
+      commit       2024-06-03   weight=0.5    artifact=artifact_b128cf09d80
+
+SUPERSEDED
+  service-to-service authentication --selected--> JWT
+    support=1.0 across 1 artifact(s)  last asserted 2023-01-11
+      adr          2023-01-11   weight=1.0    artifact=artifact_df702710a63
+    retired by fact_b92e2d38ef1f2ec (Single-occupancy decision supersession; basis=recorded_at)
+      via artifact artifact_e38077af3bd
 ```
 
-Status: 🚧 early research prototype. See `docs/architecture.md` for how the
-pieces fit together and `docs/roadmap.md` for what's done vs. planned.
+No LLM produced that answer. No document was retrieved to produce it. Four
+markdown files were compiled into semantic IR, linked into an append-only graph,
+and resolved.
+
+Status: **early research prototype.** The extraction layer is deliberately naive;
+the architecture around it is the point.
+
+---
 
 ## Quickstart
 
 ```bash
-pip install -r requirements.txt
-PYTHONPATH=. python cli.py
+git clone <this repo> && cd project-memory-engine
+pip install -e ".[dev]"
+pytest                                     # 140 tests, ~1s
+
+pme ingest fixtures/scenarios/oauth2-supersedes-jwt --ask "service-to-service authentication"
+pme compile fixtures/artifacts/sample_adr.md
 ```
 
-Runs the pipeline against `samples/sample_pr.md` and prints the resulting
-observations, segments, statements, entities, facts, and claims.
-
-## Tests
+Persist to disk and query later:
 
 ```bash
-PYTHONPATH=. pytest -v
+pme ingest fixtures/scenarios/oauth2-supersedes-jwt --db project.db
+pme ask "OAuth2" --db project.db
+pme stats --db project.db
 ```
 
-Golden-file tests live in `tests/golden/<case>/` as an `input.md` /
-`expected.json` pair. Add a new case by dropping in both files - the suite
-picks up every directory under `tests/golden/` automatically. `expected.json`
-can optionally include `"fact_count": N` to also assert how many Claims get
-promoted to Facts (see `tests/golden/pr_003_hedged` for a case that asserts
-`0` - a hedged claim that should *not* be promoted).
+---
+
+## The idea
+
+**A compiler Fact is not truth. It is evidence.**
+
+When an ADR says "use OAuth2 for service-to-service authentication", that is one
+artifact's assertion. When a PR and a commit say the same thing, memory does not
+store three facts — it stores one fact with three evidence records. Knowledge is
+accumulated evidence, and that distinction drives everything else in the design.
+
+**Memory is append-only.** A decision is never overwritten. It is retired by a
+`SupersessionEdge` that records which fact replaced it, which artifact caused the
+replacement, and whether the ordering came from timestamps or from ingestion
+order. "What did we believe in 2023 and why" stays answerable forever.
+
+**The compiler never knows history.** It turns one artifact into IR, statelessly
+and reproducibly. Everything about identity, accumulation, and time lives in the
+linker. Compiling an artifact in 2034 produces the same IR as compiling it today,
+given the same compiler and ontology version.
+
+---
+
+## Architecture
+
+```
+    Artifact                              CompiledArtifact
+       |                                        |
+       v                                        v
+   [ COMPILER ]  stateless                  [ LINKER ]  stateful
+       |                                        |
+   observe                                  BindingPass      entities -> global IDs
+   segment                                  PersistencePass  facts + evidence
+   extract_statements                       AnalysisPipeline supersession, conflicts
+   extract_entities                             |
+   extract_claims                               v
+   extract_facts                            MemoryDelta
+   resolve_entities                             |
+   extract_relations                            v
+       |                                  [ PROJECT MEMORY ]  append-only
+       v                                        |
+   CompiledArtifact                             v
+                                           [ RESOLVER ]  read path
+                                                |
+                                                v
+                                          ResolvedBelief
+                                            current / history / evidence /
+                                            conflicts / diagnostics
+```
+
+| Package | Role | May import |
+|---|---|---|
+| `ontology` | fixed vocabulary, versioned registry | — |
+| `ir` | compiler intermediate representation | `ontology` |
+| `compiler` | artifact → IR, stateless | `ir`, `ontology` |
+| `memory` | persistent schema + store contracts | `ontology` |
+| `linker` | IR → memory delta, stateful | `ir`, `memory` |
+| `store` | in-memory and SQLite implementations | `memory` |
+| `resolve` | memory → belief | `memory` |
+| `ingest` | the wiring | all |
+
+The compiler never imports the linker. The resolver never imports either. That is
+not a convention — `tests/test_import_boundaries.py` walks the AST of every module
+and fails the build if it stops being true.
+
+### Layers in detail
+
+**Compiler** — `Artifact → Observation → Segment → Statement → Claim → Fact`, with
+`Segment → Entity` and `Fact + Entity → Relation`. A Claim is anything the artifact
+asserts, scored for hedging. A Fact is a Claim that cleared the confidence
+threshold *and* mapped onto a known ontology predicate. Unmapped predicates are
+dropped, never invented.
+
+**Linker** — three deterministic passes. Binding resolves local entity mentions to
+content-addressed global IDs (hashed on name only, so two artifacts disagreeing
+about an entity's *type* still land on one entity). Persistence promotes facts to
+content-addressed nodes and attaches evidence. Analysis runs composable rules that
+emit supersession and conflict edges.
+
+**Resolver** — the read path. Walks supersession edges in both directions and
+gathers evidence. Performs no synthesis: where memory has no answer it says so,
+and it distinguishes "never heard of it" from "know the name, never became
+knowledge."
+
+---
+
+## Invariants
+
+These are tested, not aspirational.
+
+1. **Reproducible compilation** — identical output for identical
+   `(content, compiler version, ontology version, extractor config)`. Compiler-local
+   IDs are deterministic ordinals (`obs:0`, `stmt:3`), never UUIDs.
+2. **Content-addressed identity** — artifacts, entities, facts, and evidence all
+   have stable hash IDs, so re-ingesting anything is a no-op rather than a duplicate.
+3. **One fact, many evidence records** — the same assertion from N artifacts never
+   duplicates the graph node.
+4. **Nothing is ever deleted** — no `UPDATE`, no `DELETE` anywhere in the SQLite
+   store; a test asserts this against the module's SQL literals.
+5. **Order-independent belief** — ingesting a corpus in any order converges on the
+   same belief. Every permutation of every scenario is tested. Where timestamps are
+   missing, the fallback is recorded as `basis="ingestion_order"` and surfaced in
+   the answer rather than hidden.
+6. **No LLM below the compiler** — the provider abstraction is quarantined in
+   `compiler/extractors/llm/`, and the boundary test forbids importing it from the
+   linker, stores, or resolver.
+
+---
+
+## Explicitly out of scope
+
+No vector databases, no graph databases, no embeddings, no agent loops, no MCP, no
+orchestration frameworks. None of those answer the open question, which is whether
+a project can build and justify knowledge about itself deterministically.
+
+An LLM extractor is supported behind the `StatementExtractor` interface — it
+changes how well statements are found, not the shape of what memory stores.
+
+---
 
 ## Layout
 
 ```
 memory_engine/
-    ir.py           all pipeline data types
-    ontology.py     fixed EntityType / Predicate vocabulary
-    extractors.py   pluggable Statement/Fact extraction logic
-    pipeline.py     the stage functions + MemoryCompiler
-samples/            example artifacts
+  ontology.py            vocabulary + versioned registry
+  ir.py                  compiler IR, deterministic and local identity
+  compiler/              stateless artifact -> IR
+    pipeline.py
+    extractors/          statements, facts, entities, relations, patterns
+      llm/               provider abstraction (quarantined)
+  memory/                persistent schema + store contracts
+    model.py             PersistedFact, EvidenceRecord, SupersessionEdge, ...
+    contracts.py         MemoryReader / BeliefReader / MemoryWriter
+  linker/                stateful IR -> delta
+    passes/              binding, persistence, analysis
+    rules/               deprecation, single-occupancy, negation
+    ordering.py          time comparison; the fix for order-dependent belief
+  store/                 in_memory.py, sqlite.py
+  resolve/               resolver.py, render.py
+  ingest.py              compiler + linker + store, wired
+  cli.py
+
+docs/
+  architecture.md, roadmap.md, changelog.md
+  rfcs/                  RFC 001-004
+  findings/read-path.md  what building the read path exposed
+
+fixtures/
+  artifacts/             single artifacts
+  scenarios/             multi-artifact stories + expected_belief.json
+
 tests/
-    golden/         input/expected pairs, auto-discovered
-docs/               architecture + roadmap
+  compiler/ linker/ store/ resolve/ contracts/ scenarios/
+  test_import_boundaries.py
 ```
+
+---
+
+## Roadmap
+
+See `docs/roadmap.md`. Next: entity aliasing and merge semantics, richer
+extraction, then the explanation engine on top of the resolver.
+
+The test every proposal has to pass:
+
+> **Does this strengthen the project's ability to build, preserve, justify, and
+> evolve software knowledge over time?**
+
+If not, it probably does not belong in the core.

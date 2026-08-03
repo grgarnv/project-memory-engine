@@ -1,0 +1,31 @@
+{
+  "statements": [
+    {
+      "subject": "Current Change",
+      "predicate": "description",
+      "target": "Move JWT validation into the API Gateway."
+    },
+    {
+      "subject": "API Gateway",
+      "predicate": "contains",
+      "target": "JWT validation"
+    },
+    {
+      "subject": "Current Change",
+      "predicate": "has_reason",
+      "target": "Every service currently duplicates authentication logic."
+    },
+    {
+      "subject": "Current Change",
+      "predicate": "has_tradeoff",
+      "target": "Gateway complexity increases."
+    }
+  ],
+  "entities": [
+    "API Gateway",
+    "JWT validation",
+    "authentication"
+  ],
+  "fact_count": 4,
+  "relation_count": 1
+}
