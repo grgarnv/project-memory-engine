@@ -84,6 +84,9 @@ class Predicate(Enum):
     PROHIBITS = "prohibits"
     ALLOWS = "allows"
 
+    # Identity
+    SAME_AS = "same_as"
+
     # Miscellaneous
     DESCRIBES = "describes"
     UNKNOWN = "unknown"
@@ -128,6 +131,10 @@ class OntologyRegistry:
             "introduces": Predicate.INTRODUCES,
             "implements": Predicate.IMPLEMENTS,
             "exposes": Predicate.EXPOSES,
+            "same_as": Predicate.SAME_AS,
+            "calls": Predicate.CALLS,
+            "extends": Predicate.EXTENDS,
+            "imports": Predicate.IMPORTS,
         }
         self._segment_predicate_map = segment_predicate_map or {
             "description": "description",

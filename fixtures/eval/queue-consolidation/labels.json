@@ -1,0 +1,58 @@
+{
+  "name": "queue-consolidation",
+  "notes": "Harder case. Prose is messier, several assertions sit in subordinate clauses, and some are phrased in ways the pattern table is not expected to reach. Recall below 100% here is the honest signal. Label corrected after review: \"the analytics pipeline runs on Kafka\" is depends_on, not uses. The extractor was right and the label was wrong; recorded here so the correction is not mistaken for tuning.",
+  "labels": [
+    [
+      "asynchronous messaging",
+      "selected",
+      "RabbitMQ"
+    ],
+    [
+      "asynchronous messaging",
+      "selected",
+      "Kafka"
+    ],
+    [
+      "RabbitMQ",
+      "replaced_by",
+      "Kafka"
+    ],
+    [
+      "order service",
+      "depends_on",
+      "Kafka"
+    ],
+    [
+      "order service",
+      "uses",
+      "Kafka"
+    ],
+    [
+      "notification worker",
+      "uses",
+      "Kafka"
+    ],
+    [
+      "order service",
+      "prohibits",
+      "RabbitMQ"
+    ],
+    [
+      "analytics pipeline",
+      "depends_on",
+      "Kafka"
+    ],
+    [
+      "order consumer",
+      "uses",
+      "Kafka"
+    ]
+  ],
+  "known_unreachable": [
+    [
+      "order consumer",
+      "uses",
+      "Kafka"
+    ]
+  ]
+}

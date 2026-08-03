@@ -64,6 +64,57 @@ _HEADER_TYPES: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
+_FENCE = re.compile(r"^\s*(?:```|~~~)")
+_BULLET = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+")
+_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
+
+
+def _strip_markdown_noise(content: str) -> str:
+    """
+    Remove fenced code and table rows before chunking.
+
+    A code block is not an assertion about the project, and a table row parsed
+    as prose produces one enormous `describes` fact carrying a whole matrix.
+    Running against real documentation, unfiltered markdown was the single
+    largest source of junk facts.
+    """
+    lines: list[str] = []
+    in_fence = False
+    for line in content.splitlines():
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence or _TABLE_ROW.match(line):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _expand_bullets(chunk: str) -> list[str]:
+    """
+    One bullet is one assertion. A list collapsed into a single paragraph
+    yields one fact for what the author wrote as several.
+    """
+    lines = chunk.splitlines()
+    if not any(_BULLET.match(line) for line in lines):
+        return [chunk]
+
+    items: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        if _BULLET.match(line):
+            if current:
+                items.append(" ".join(current).strip())
+            current = [_BULLET.sub("", line).strip()]
+        elif line.strip() and current:
+            current.append(line.strip())
+        elif line.strip():
+            items.append(line.strip())
+    if current:
+        items.append(" ".join(current).strip())
+    return [item for item in items if item]
+
+
 def observe(artifact: Artifact) -> list[Observation]:
     """
     Chunk artifact text into paragraphs and tag each with a rough type.
@@ -73,7 +124,12 @@ def observe(artifact: Artifact) -> list[Observation]:
     set the type of the body beneath them; a header with no body stays a header
     and is dropped at the segment stage.
     """
-    chunks = [c.strip() for c in artifact.content.split("\n\n") if c.strip()]
+    cleaned = _strip_markdown_noise(artifact.content)
+    chunks: list[str] = []
+    for block in cleaned.split("\n\n"):
+        block = block.strip()
+        if block:
+            chunks.extend(_expand_bullets(block))
 
     observations: list[Observation] = []
     current_header = ""

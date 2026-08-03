@@ -45,10 +45,32 @@ the architecture around it is the point.
 ```bash
 git clone <this repo> && cd project-memory-engine
 pip install -e ".[dev]"
-pytest                                     # 140 tests, ~1s
+pytest                                     # 191 tests, ~2s
 
 pme ingest fixtures/scenarios/oauth2-supersedes-jwt --ask "service-to-service authentication"
 pme compile fixtures/artifacts/sample_adr.md
+pme eval                    # extraction precision and recall against labels
+```
+
+Ask it questions in prose, or query the graph directly:
+
+```bash
+pme ingest fixtures/eval/queue-consolidation --db project.db
+pme explain "asynchronous messaging" --db project.db
+pme timeline RabbitMQ      --db project.db
+pme dependents Kafka       --db project.db
+pme health                 --db project.db
+```
+
+```
+$ pme explain "asynchronous messaging" --db project.db
+
+The project uses Kafka for asynchronous messaging. That position is asserted by
+an ADR, most recently on 2024-11-12.
+
+This replaced an earlier position: uses RabbitMQ for asynchronous messaging,
+asserted by an ADR, most recently on 2022-08-01. It was retired by artifact
+artifact_0c77e2b.
 ```
 
 Persist to disk and query later:
@@ -217,10 +239,31 @@ tests/
 
 ---
 
+## Extraction quality
+
+Extraction is measured, not estimated. `pme eval` scores the engine's output
+against triples labelled from the documents:
+
+| Case | Precision | Recall (reachable) | F1 |
+|---|---|---|---|
+| auth-migration | 100% | 100% | 100% |
+| queue-consolidation | 100% | 75% | 86% |
+| **total** | **100%** | **87%** | **93%** |
+
+Labels deliberately include assertions the pattern table cannot reach, so recall
+reports the real gap rather than a flattering one. The harness earned its place
+on first run by catching a precision gate that scored 100% precision and 38%
+recall because one head noun was missing from a closed vocabulary — invisible
+from reading the output, since everything that came through was correct.
+
+Caveat stated plainly in `docs/findings/extraction-evaluation.md`: both corpora
+were written by the same person who wrote the extractor. These numbers show
+regression, not capability.
+
 ## Roadmap
 
-See `docs/roadmap.md`. Next: entity aliasing and merge semantics, richer
-extraction, then the explanation engine on top of the resolver.
+See `docs/roadmap.md`. Next: compound-sentence splitting, an independently
+labelled corpus, and ontology evolution.
 
 The test every proposal has to pass:
 

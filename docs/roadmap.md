@@ -49,25 +49,37 @@ Added after building a resolver falsified four write-side assumptions. See
 - [x] Scenario goldens with `expected_belief.json`
 - [x] `pme` CLI: `compile` / `ingest` / `ask` / `stats`
 
-## Phase 3 — next
+## Phase 3 — done
 
-- [ ] **Entity aliasing and merge semantics.** `API Gateway` / `the gateway` /
-      `APIGW` are three permanent identities in an append-only store. Candidate:
-      a `SAME_AS` edge resolved at read time, so a merge is an assertion with
-      evidence rather than a mutation. The hardest remaining identity problem,
-      and the one that compounds with corpus age.
-- [ ] **Richer extraction.** The pattern table is a floor. Either more patterns
-      or an LLM extractor behind the same interface — the shape of the output
-      matters, not the matcher.
-- [ ] **Ontology evolution.** V1 → V2 migration semantics. RFC 002 specifies the
-      registry; what happens to facts compiled under an older ontology is open.
-- [ ] **Query beyond single-entity lookup.** "What changed in authentication
-      between 2023 and 2025", "what depends on Redis".
+- [x] **Entity aliasing and merge semantics.** `SAME_AS` as an ordinary fact
+      with evidence, resolved into equivalence classes at read time. Cycle-safe,
+      bounded, deterministic canonical member. A retracted merge is a
+      supersession, not a deletion.
+- [x] **Query beyond single-entity lookup.** `timeline`, `dependents`, `health`.
+- [x] **Measured extraction.** `memory_engine/eval/` with labelled corpora.
+      Precision and recall are numbers now, not impressions.
+- [x] **Richer extraction.** Nine further relational patterns, sentence-level
+      matching, markdown-aware chunking, negation as constraint.
 
-## Phase 4 — applications, once Phase 3 settles
+## Phase 3.5 — next, and now evidence-driven
 
-- [ ] Explanation engine (natural-language rendering over `ResolvedBelief`)
-- [ ] Compliance engine
+- [ ] **Compound-sentence splitting.** "A uses X, and B uses X" yields one fact.
+      Named by the eval as a concrete miss, not guessed at.
+- [ ] **Verb inflection in patterns.** `must not use` misses because the pattern
+      requires `uses`.
+- [ ] **An independently labelled corpus.** Both current corpora were written by
+      whoever wrote the extractor. Until that changes the numbers show
+      regression, not capability. This is the highest-value item on the list.
+- [ ] **Ontology evolution.** V1 → V2 migration semantics. Deferred deliberately:
+      the eval will show which predicates are actually missing.
+
+## Phase 4 — applications
+
+- [x] **Explanation engine** (`resolve/explain.py`). Prose over `ResolvedBelief`;
+      every sentence traces to a stored value, no model call, caveats surfaced
+      rather than smoothed.
+- [ ] Compliance engine — check a codebase against recorded constraints
+      (`PROHIBITS` facts are already extracted and stored)
 - [ ] Onboarding assistant
 
 These sit *on* the resolver. If each builds its own resolution, they will

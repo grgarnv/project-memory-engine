@@ -1,0 +1,9 @@
+{
+  "name": "queue-consolidation",
+  "artifacts": [
+    {"file": "adr-007-messaging.md",             "type": "adr",          "recorded_at": "2022-08-01"},
+    {"file": "adr-019-kafka.md",                 "type": "adr",          "recorded_at": "2024-11-12"},
+    {"file": "pr-1140-order-consumer.md",        "type": "pull_request", "recorded_at": "2024-12-03"},
+    {"file": "issue-88-broker-decommission.md",  "type": "issue",        "recorded_at": "2025-01-15"}
+  ]
+}

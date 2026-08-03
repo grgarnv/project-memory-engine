@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from memory_engine.memory.contracts import BeliefReader
 from memory_engine.memory.model import ConflictEdge, PersistedFact
 from memory_engine.ontology import Predicate
+from memory_engine.resolve.identity import EquivalenceClass, IdentityResolver
 
 # Predicates that express a decision, its rationale, or a structural commitment.
 # Presentation order, not a ranking of truth.
@@ -110,6 +111,7 @@ class BeliefNode:
 class ResolvedBelief:
     query: str
     entity_ref: str | None
+    identity: EquivalenceClass | None = None
     current: list[BeliefNode] = field(default_factory=list)
     history: list[BeliefNode] = field(default_factory=list)
     conflicts: list[ConflictEdge] = field(default_factory=list)
@@ -133,6 +135,7 @@ class BeliefResolver:
 
     def __init__(self, reader: BeliefReader):
         self.reader = reader
+        self.identity = IdentityResolver(reader)
 
     def explain(
         self,
@@ -152,7 +155,21 @@ class BeliefResolver:
         result.entity_ref = ref
         wanted = predicates or DECISION_PREDICATES
 
-        facts = self.reader.facts_mentioning(ref)
+        # Ask about any name in the class and get the whole concept's answer.
+        klass = self.identity.equivalence_class(ref)
+        result.identity = klass
+
+        facts = []
+        seen_fact_ids: set[str] = set()
+        for member in klass.refs:
+            for fact in self.reader.facts_mentioning(member):
+                if fact.id not in seen_fact_ids:
+                    seen_fact_ids.add(fact.id)
+                    facts.append(fact)
+
+        # same_as edges are how the class was built; they are not an answer.
+        facts = [f for f in facts if f.predicate is not Predicate.SAME_AS]
+
         if not facts:
             result.diagnostics.append(
                 f"'{entity_name}' is bound (id={ref}) but appears in no persisted "
@@ -169,7 +186,7 @@ class BeliefResolver:
             )
             return result
 
-        seen_ids: set[str] = set()
+        seen_ids = set()
         for fact in sorted(relevant, key=self._sort_key):
             if fact.id in seen_ids:
                 continue
@@ -245,6 +262,18 @@ class BeliefResolver:
                 f"{len(by_ingestion)} supersession(s) here were ordered by ingestion "
                 f"order, not by artifact timestamps. Re-importing these artifacts in "
                 f"a different order could invert this answer."
+            )
+
+        if result.identity and result.identity.is_merged:
+            result.diagnostics.append(
+                f"'{result.query}' resolved across {len(result.identity.refs)} names "
+                f"asserted to be the same concept: "
+                f"{', '.join(result.identity.labels)}."
+            )
+        if result.identity and result.identity.truncated:
+            result.diagnostics.append(
+                "The identity class hit the traversal bound; some equivalent "
+                "names were not followed."
             )
 
         undated = [n for n in result.current if not n.last_asserted]

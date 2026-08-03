@@ -19,7 +19,7 @@ from pathlib import Path
 from memory_engine.compiler import MemoryCompiler
 from memory_engine.ingest import Ingestor, load_artifact
 from memory_engine.memory.contracts import ProjectMemory
-from memory_engine.resolve import BeliefResolver, render
+from memory_engine.resolve import BeliefResolver, ProjectQueries, explain, render
 from memory_engine.store import InMemoryProjectMemory, SQLiteProjectMemory
 
 
@@ -96,6 +96,67 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_explain(args: argparse.Namespace) -> int:
+    memory = _open_memory(args.db)
+    belief = BeliefResolver(memory).explain(args.entity)
+    print(explain(belief))
+    return 0 if belief.answered else 1
+
+
+def cmd_timeline(args: argparse.Namespace) -> int:
+    memory = _open_memory(args.db)
+    entries = ProjectQueries(memory).timeline(args.entity)
+    if not entries:
+        print(f"Nothing recorded about {args.entity!r}.")
+        return 1
+    for entry in entries:
+        when = entry.when or "  undated "
+        marker = "+" if entry.event == "asserted" else "-"
+        print(f"{when}  {marker} {entry.statement}")
+        if entry.artifact_id:
+            print(f"              via {entry.artifact_type or 'supersession'} "
+                  f"{entry.artifact_id[:20]}")
+    return 0
+
+
+def cmd_dependents(args: argparse.Namespace) -> int:
+    memory = _open_memory(args.db)
+    found = ProjectQueries(memory).dependents(args.entity)
+    if not found:
+        print(f"Nothing currently recorded as depending on {args.entity!r}.")
+        return 1
+    print(f"Currently depending on {args.entity}:")
+    for dep in found:
+        print(f"  {dep.label:<34} ({dep.predicate.value}) "
+              f"support={dep.support} across {dep.evidence_count} artifact(s)")
+    return 0
+
+
+def cmd_health(args: argparse.Namespace) -> int:
+    memory = _open_memory(args.db)
+    report = ProjectQueries(memory).health(list(memory.facts.values())
+                                           if hasattr(memory, "facts") else [])
+    for field_name in ("total_facts", "active_facts", "undated_facts",
+                       "single_source_facts", "ingestion_ordered_supersessions",
+                       "open_conflicts", "unresolved_literals"):
+        print(f"{field_name:<34} {getattr(report, field_name)}")
+    for note in report.notes:
+        print(f"  ! {note}")
+    return 0
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    from memory_engine.eval import run_all
+    from memory_engine.eval.harness import format_report
+
+    results = run_all(args.path)
+    if not results:
+        print(f"No evaluation cases found under {args.path}")
+        return 1
+    print(format_report(results))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pme", description=__doc__.strip().splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -117,6 +178,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_ask.add_argument("entity")
     p_ask.add_argument("--db", help="SQLite file")
     p_ask.set_defaults(func=cmd_ask)
+
+    p_explain = sub.add_parser("explain", help="prose answer about an entity")
+    p_explain.add_argument("entity")
+    p_explain.add_argument("--db")
+    p_explain.set_defaults(func=cmd_explain)
+
+    p_timeline = sub.add_parser("timeline", help="everything recorded about an entity, in order")
+    p_timeline.add_argument("entity")
+    p_timeline.add_argument("--db")
+    p_timeline.set_defaults(func=cmd_timeline)
+
+    p_deps = sub.add_parser("dependents", help="what currently relies on an entity")
+    p_deps.add_argument("entity")
+    p_deps.add_argument("--db")
+    p_deps.set_defaults(func=cmd_dependents)
+
+    p_health = sub.add_parser("health", help="where this knowledge base is weak")
+    p_health.add_argument("--db")
+    p_health.set_defaults(func=cmd_health)
+
+    p_eval = sub.add_parser("eval", help="extraction precision and recall against labels")
+    p_eval.add_argument("path", nargs="?", default="fixtures/eval")
+    p_eval.set_defaults(func=cmd_eval)
 
     p_stats = sub.add_parser("stats", help="counts of what is in memory")
     p_stats.add_argument("--db", help="SQLite file")

@@ -1,0 +1,10 @@
+{
+  "name": "auth-migration",
+  "artifacts": [
+    {"file": "adr-021-session-store.md",            "type": "adr",          "recorded_at": "2023-03-14"},
+    {"file": "doc-glossary.md",                     "type": "document",     "recorded_at": "2023-04-02"},
+    {"file": "adr-034-session-store-revision.md",   "type": "adr",          "recorded_at": "2025-02-09"},
+    {"file": "pr-902-session-migration.md",         "type": "pull_request", "recorded_at": "2025-02-20"},
+    {"file": "commit-c41-drop-redis.md",            "type": "commit",       "recorded_at": "2025-03-01"}
+  ]
+}
